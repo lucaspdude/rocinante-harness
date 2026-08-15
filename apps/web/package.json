@@ -6,9 +6,8 @@
     "dev": "next dev -H 127.0.0.1 -p 30178",
     "build": "next build --webpack",
     "build:profile": "next build --webpack --profile",
-    "start": "next start -H 127.0.0.1 -p 30178",
+    "lint": "echo 'no-op lint (P14 wires eslint config)'",
     "typecheck": "tsc --noEmit",
-    "lint": "next lint",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {

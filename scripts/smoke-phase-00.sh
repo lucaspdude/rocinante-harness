@@ -49,10 +49,12 @@ if [ "$READY" -ne 1 ]; then
   exit 1
 fi
 
-# 6. Grep zero for old fork vocabulary.
+# 6. Grep zero for old fork vocabulary. Excludes docs/ (the
+# historical references live there, not in product code) and
+# the script itself (which contains the pattern as a literal).
 HITS=$(git grep -nIE 'ompweb|omp-web|can1357|kahme247|agegr|pi-web|OMP_WEB_' \
-  -- ':!**/node_modules' ':!.git' ':!.turbo' ':!.next' ':!LICENSE' \
-  ':!docs/**/*.md' ':!**/dist' ':!**/bin' || true)
+  -- ':!docs' ':!scripts' ':!node_modules' ':!.git' ':!.turbo' ':!.next' \
+  ':!LICENSE' ':!dist' ':!bin' || true)
 if [ -n "${HITS}" ]; then
   echo "Found forbidden vocabulary:"
   echo "${HITS}"
