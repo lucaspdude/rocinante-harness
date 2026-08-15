@@ -15,6 +15,7 @@ import (
 
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/storage"
 )
@@ -47,9 +48,8 @@ func main() {
 	port := flag.Int("port", 30179, "HTTP port")
 	ompBin := flag.String("omp-bin", "", "path to the omp binary")
 	noEncryption := flag.Bool("no-encryption", false, "store Ed25519 key in plaintext (dev only)")
-	shareDir := flag.String("share-dir", "", "base directory for key/db/logs (default: ROCHASSEN_SHARE_DIR or ~/.local/share/rocinante-harness)")
+	shareDir := flag.String("share-dir", "", "base directory for key/db/logs")
 	passphraseEnv := flag.String("passphrase-env", "", "env var name for the passphrase")
-	dbPath := flag.String("db-path", "", "deprecated: alias for --share-dir/roc-harness.db")
 	showVersion := flag.Bool("version", false, "print version and exit")
 
 	flag.Parse()
@@ -74,25 +74,47 @@ func main() {
 	if effectiveShareDir == "" {
 		effectiveShareDir = defaultShareDir()
 	}
-	if *dbPath != "" {
-		log.Printf("warning: --db-path is deprecated; use --share-dir instead")
-	}
 
 	loader, resolvedBin := resolveOmp(*ompBin)
 	manager := omp.NewManager(resolvedBin)
 	idem := middleware.NewIdempotencyCache(2048)
 
-	// Open SQLite (best-effort — api runs without DB if init hasn't been run).
 	dbPathResolved := filepath.Join(effectiveShareDir, "roc-harness.db")
-	db, err := storage.Open(dbPathResolved)
-	if err != nil {
-		log.Printf("warning: storage open failed (%v); continuing without DB", err)
-		db = nil
-	} else {
+	db, dbErr := storage.Open(dbPathResolved)
+	if dbErr != nil {
+		log.Printf("warning: storage open failed (%v); continuing without DB", dbErr)
+	}
+
+	var (
+		authState *api.AuthState
+		authMW    func(http.Handler) http.Handler
+	)
+	if dbErr == nil {
 		if err := storage.ApplyMigrations(db); err != nil {
 			log.Printf("warning: migrations failed: %v", err)
 		}
-		_ = db
+		// Load the signing key.
+		ed25519Path := filepath.Join(effectiveShareDir, ".ed25519")
+		passphrase := ""
+		if *passphraseEnv != "" {
+			passphrase = os.Getenv(*passphraseEnv)
+		}
+		sk, pk, err := auth.LoadKeyFile(ed25519Path, passphrase)
+		if err != nil {
+			log.Printf("warning: cannot load %s (%v); auth endpoints disabled", ed25519Path, err)
+		} else {
+			signer := auth.NewSigner(sk, pk, passphrase)
+			authState = &api.AuthState{
+				Signer:       signer,
+				RefreshStore: auth.NewRefreshStore(db),
+				DeviceStore:  auth.NewDeviceStore(db),
+				PairingStore: auth.NewPairingStore(db),
+			}
+			revCache := auth.NewRevocationCache(db, &auth.StaticKeyLoader{Pk: pk})
+			defer revCache.Stop()
+			authMW = auth.AuthMiddleware(&auth.StaticKeyLoader{Pk: pk}, revCache)
+		}
+		defer db.Close()
 	}
 
 	mux := http.NewServeMux()
@@ -101,6 +123,8 @@ func main() {
 		Manager:     manager,
 		APIVersion:  apiVersion,
 		Idempotency: idem,
+		AuthState:   authState,
+		AuthMW:      authMW,
 	}))
 
 	srv := &http.Server{
