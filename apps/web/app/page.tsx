@@ -1,8 +1,5 @@
-export default function HomePage() {
-  return (
-    <main>
-      <h1>rocinante-harness</h1>
-      <p>rocinante-harness — booting</p>
-    </main>
-  );
+import { redirect } from "next/navigation";
+
+export default function RootPage() {
+  redirect("/en-US");
 }

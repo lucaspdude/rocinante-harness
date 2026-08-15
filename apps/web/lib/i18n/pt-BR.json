@@ -1,0 +1,11 @@
+{
+  "app.name": "rocinante-harness",
+  "login.title": "Entrar",
+  "login.subtitle": "Digite sua passphrase para continuar.",
+  "login.passphrase": "Passphrase",
+  "login.deviceName": "Nome do dispositivo (opcional)",
+  "login.submit": "Entrar",
+  "login.invalidPassphrase": "Passphrase inválida. Tente novamente.",
+  "login.networkError": "Não foi possível alcançar a api. Ela está rodando?",
+  "footer.tagline": "Harness de agente de IA auto-hospedado."
+}

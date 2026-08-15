@@ -37,7 +37,7 @@ WEB_PID=$!
 trap 'kill ${API_PID:-0} 2>/dev/null || true; pkill -P ${WEB_PID:-0} 2>/dev/null || true; kill ${WEB_PID:-0} 2>/dev/null || true; pkill -f "next dev" 2>/dev/null || true; pkill -f "next-server" 2>/dev/null || true' EXIT
 READY=0
 for i in $(seq 1 90); do
-  if curl -sf http://127.0.0.1:30178/ 2>/dev/null | grep -q 'rocinante-harness — booting'; then
+  if curl -sfL http://127.0.0.1:30178/ 2>/dev/null | grep -q 'rocinante-harness'; then
     READY=1
     break
   fi
@@ -49,9 +49,7 @@ if [ "$READY" -ne 1 ]; then
   exit 1
 fi
 
-# 6. Grep zero for old fork vocabulary. Excludes docs/ (the
-# historical references live there, not in product code) and
-# the script itself (which contains the pattern as a literal).
+# 6. Grep zero for old fork vocabulary.
 HITS=$(git grep -nIE 'ompweb|omp-web|can1357|kahme247|agegr|pi-web|OMP_WEB_' \
   -- ':!docs' ':!scripts' ':!node_modules' ':!.git' ':!.turbo' ':!.next' \
   ':!LICENSE' ':!dist' ':!bin' || true)
