@@ -1,0 +1,37 @@
+# Caddyfile for roc-harness on a public VPS.
+# Run with: caddy run --config Caddyfile
+#
+# Requires:
+#   - roc-harness and api binaries installed under
+#     /usr/local/share/rocinante-harness/bin
+#   - roc-harness up has been run once so the api is bound to
+#     127.0.0.1:30179 and the web to 127.0.0.1:30178
+#   - DNS A or CNAME record for api.example.com pointing to this host
+#   - DNS A or CNAME record for app.example.com pointing to this host
+
+api.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:30179 {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Real-IP {remote_host}
+    }
+    header Strict-Transport-Security "max-age=15552000; includeSubDomains"
+    header X-Content-Type-Options "nosniff"
+    header Referrer-Policy "no-referrer"
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+}
+
+app.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:30178 {
+        header_up X-Forwarded-For {remote_host}
+    }
+    header Strict-Transport-Security "max-age=15552000; includeSubDomains"
+    header X-Content-Type-Options "nosniff"
+    header Referrer-Policy "no-referrer"
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+}

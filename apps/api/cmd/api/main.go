@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -51,6 +53,10 @@ func main() {
 	noEncryption := flag.Bool("no-encryption", false, "store Ed25519 key in plaintext (dev only)")
 	shareDir := flag.String("share-dir", "", "base directory for key/db/logs")
 	passphraseEnv := flag.String("passphrase-env", "", "env var name for the passphrase")
+	bind := flag.String("bind", "127.0.0.1", "bind address (127.0.0.1 | 0.0.0.0)")
+	corsAllowlist := flag.String("cors-allowlist", "", "comma-separated allowed Origin values (required when --bind is 0.0.0.0)")
+	tlsCert := flag.String("tls-cert", "", "TLS certificate path (PEM)")
+	tlsKey := flag.String("tls-key", "", "TLS private key path (PEM)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 
 	flag.Parse()
@@ -79,6 +85,10 @@ func main() {
 	loader, resolvedBin := resolveOmp(*ompBin)
 	manager := omp.NewManager(resolvedBin)
 	idem := middleware.NewIdempotencyCache(2048)
+
+	if *bind == "0.0.0.0" && *corsAllowlist == "" {
+		log.Fatalf("--bind 0.0.0.0 requires --cors-allowlist (defense-in-depth)")
+	}
 
 	dbPathResolved := filepath.Join(effectiveShareDir, "roc-harness.db")
 	db, dbErr := storage.Open(dbPathResolved)
@@ -117,16 +127,27 @@ func main() {
 		defer db.Close()
 	}
 
+	var corsOrigins []string
+	if *corsAllowlist != "" {
+		for _, o := range strings.Split(*corsAllowlist, ",") {
+			corsOrigins = append(corsOrigins, strings.TrimSpace(o))
+		}
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("/", api.NewRouter(api.RouterDeps{
-		MetaLoader:  loader,
-		Manager:     manager,
-		APIVersion:  apiVersion,
-		Idempotency: idem,
-		AuthState:   authState,
-		AuthMW:      authMW,
-		ShareDir:    effectiveShareDir,
-	}))
+	mux.Handle("/", middleware.TLSHandler(
+		middleware.CORSHandler(middleware.CORSConfig{AllowedOrigins: corsOrigins})(
+			api.NewRouter(api.RouterDeps{
+				MetaLoader:  loader,
+				Manager:     manager,
+				APIVersion:  apiVersion,
+				Idempotency: idem,
+				AuthState:   authState,
+				AuthMW:      authMW,
+				ShareDir:    effectiveShareDir,
+			}),
+		),
+	))
 
 	if dbErr == nil && authMW != nil {
 		sshHandler := &sshpkg.Handler{
@@ -134,18 +155,18 @@ func main() {
 			Servers: sshpkg.NewServerStore(db),
 			AuthMW:  authMW,
 		}
-		mux.Handle("/api/v1/ssh/", sshHandler.Routes())
+		mux.Handle("/api/v1/ssh/", middleware.TLSHandler(sshHandler.Routes()))
 	}
 
+	addr := *bind + ":" + fmt.Sprintf("%d", *port)
 	srv := &http.Server{
-		Addr:              fmt.Sprintf("127.0.0.1:%d", *port),
+		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
 	go func() {
 		<-ctx.Done()
 		manager.CloseAll()
@@ -154,11 +175,18 @@ func main() {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	log.Printf("api %s listening on 127.0.0.1:%d (omp-bin=%q share-dir=%q no-encryption=%v)",
-		apiVersion, *port, resolvedBin, effectiveShareDir, *noEncryption)
-
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("server error: %v", err)
+	if *tlsCert != "" && *tlsKey != "" {
+		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		log.Printf("api %s listening on https://%s (cors=%v)", apiVersion, addr, corsOrigins)
+		if err := srv.ListenAndServeTLS(*tlsCert, *tlsKey); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server error: %v", err)
+		}
+	} else {
+		log.Printf("api %s listening on http://%s (omp-bin=%q share-dir=%q no-encryption=%v)",
+			apiVersion, addr, resolvedBin, effectiveShareDir, *noEncryption)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server error: %v", err)
+		}
 	}
 }
 
