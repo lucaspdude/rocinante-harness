@@ -2,6 +2,7 @@ package omp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -27,6 +28,12 @@ type Session struct {
 	stdout io.ReadCloser
 	stderr io.ReadCloser
 
+	// combined stitches the bytes the bufio.Reader buffered past
+	// the first newline (during the handshake) with the live
+	// stdout pipe. Session.Reader() returns this so the SSE
+	// handler sees every frame omp produced.
+	combined io.Reader
+
 	mu              sync.Mutex
 	closed          bool
 	protocolVersion int
@@ -35,7 +42,7 @@ type Session struct {
 }
 
 // Reader returns the structured stdout scanner.
-func (s *Session) Reader() io.Reader { return s.stdout }
+func (s *Session) Reader() io.Reader { return s.combined }
 
 // Writer returns the stdin pipe.
 func (s *Session) Writer() io.Writer { return s.stdin }
@@ -110,9 +117,10 @@ func Spawn(ctx context.Context, opts Options) (*Session, error) {
 		return nil, fmt.Errorf("omp start: %w", err)
 	}
 
+	br := bufio.NewReader(stdout)
 	hsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	handshake, err := readHandshake(hsCtx, bufio.NewReader(stdout))
+	handshake, leftover, err := readHandshakeWithLeftover(hsCtx, br)
 	if err != nil {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		_, _ = cmd.Process.Wait()
@@ -129,11 +137,13 @@ func Spawn(ctx context.Context, opts Options) (*Session, error) {
 
 	_ = stderr
 
+	combined := io.MultiReader(bytes.NewReader(leftover), stdout)
 	return &Session{
 		cmd:             cmd,
 		stdin:           stdin,
 		stdout:          stdout,
 		stderr:          stderr,
+		combined:        combined,
 		protocolVersion: handshake.ProtocolVersion,
 		ompVersion:      ompVersion,
 		ompBin:          opts.OpBin,

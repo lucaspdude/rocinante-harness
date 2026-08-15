@@ -2,6 +2,7 @@ package omp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -62,9 +63,11 @@ func decodeString(r json.RawMessage) string {
 	return ""
 }
 
-// readHandshake reads one line from the reader and dispatches to
-// parseHandshake. Bounded by ctx.
-func readHandshake(ctx context.Context, r *bufio.Reader) (Handshake, error) {
+// readHandshakeWithLeftover reads one line from the bufio.Reader
+// and returns the handshake plus any bytes already buffered past
+// the first newline (so the caller can re-attach them to the
+// downstream reader).
+func readHandshakeWithLeftover(ctx context.Context, r *bufio.Reader) (Handshake, []byte, error) {
 	type result struct {
 		line string
 		err  error
@@ -76,13 +79,33 @@ func readHandshake(ctx context.Context, r *bufio.Reader) (Handshake, error) {
 	}()
 	select {
 	case <-ctx.Done():
-		return Handshake{}, ctx.Err()
-	case r := <-done:
-		if r.err != nil {
-			return Handshake{}, fmt.Errorf("read handshake: %w", r.err)
+		return Handshake{}, nil, ctx.Err()
+	case res := <-done:
+		if res.err != nil {
+			return Handshake{}, nil, fmt.Errorf("read handshake: %w", res.err)
 		}
-		return parseHandshake(r.line)
+		hs, err := parseHandshake(res.line)
+		if err != nil {
+			return Handshake{}, nil, err
+		}
+		leftover := r.Buffered()
+		if leftover == 0 {
+			return hs, nil, nil
+		}
+		buf := make([]byte, leftover)
+		n, _ := r.Peek(leftover)
+		copy(buf, n)
+		// Drain exactly what we peeked.
+		_, _ = r.Discard(leftover)
+		return hs, buf, nil
 	}
+}
+
+// readHandshake reads one line from the reader and dispatches to
+// parseHandshake. Bounded by ctx.
+func readHandshake(ctx context.Context, r *bufio.Reader) (Handshake, error) {
+	hs, _, err := readHandshakeWithLeftover(ctx, r)
+	return hs, err
 }
 
 // fallbackOmpVersion shells out to `omp --version` when the v1
@@ -105,3 +128,5 @@ func fallbackOmpVersion(ctx context.Context, ompBin string) (string, error) {
 	}
 	return v, nil
 }
+
+var _ = bytes.NewReader

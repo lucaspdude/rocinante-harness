@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
-# Mock omp binary speaking NDJSON v2 protocol.
-# Sleeps 1s so tests can issue Close() before natural exit.
-sleep 1
+echo '{"protocol_version":2,"omp_version":"omp/17.3.4"}'
+echo '{"type":"agent_start","seq":1}'
+echo '{"type":"delta","seq":2,"text":"hello"}'
+echo '{"type":"agent_end","seq":3}'
+# Stay alive briefly so the SSE stream still has time to read.
+sleep 5
