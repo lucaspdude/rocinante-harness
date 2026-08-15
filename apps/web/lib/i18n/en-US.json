@@ -11,5 +11,18 @@
   "agent.title": "Agent",
   "agent.placeholder": "Type a prompt...",
   "agent.send": "Send",
-  "agent.stop": "Stop"
+  "agent.stop": "Stop",
+  "settings.title": "Settings",
+  "settings.general": "General",
+  "settings.locale": "Language",
+  "settings.theme": "Theme",
+  "settings.themeLight": "Light",
+  "settings.themeDark": "Dark",
+  "settings.themeSystem": "System",
+  "settings.account": "Account",
+  "settings.logout": "Sign out",
+  "settings.devices": "Devices",
+  "settings.devicesEmpty": "No devices yet.",
+  "settings.current": "current",
+  "settings.revoke": "Revoke"
 }

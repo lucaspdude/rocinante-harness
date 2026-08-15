@@ -11,5 +11,18 @@
   "agent.title": "Agente",
   "agent.placeholder": "Digite um prompt...",
   "agent.send": "Enviar",
-  "agent.stop": "Parar"
+  "agent.stop": "Parar",
+  "settings.title": "Configurações",
+  "settings.general": "Geral",
+  "settings.locale": "Idioma",
+  "settings.theme": "Tema",
+  "settings.themeLight": "Claro",
+  "settings.themeDark": "Escuro",
+  "settings.themeSystem": "Sistema",
+  "settings.account": "Conta",
+  "settings.logout": "Sair",
+  "settings.devices": "Dispositivos",
+  "settings.devicesEmpty": "Nenhum dispositivo ainda.",
+  "settings.current": "atual",
+  "settings.revoke": "Revogar"
 }
