@@ -12,14 +12,12 @@ import (
 	"time"
 
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
 )
 
 const apiVersion = "0.1.0"
 
-// staticMetaLoader returns the cached omp_bin and the handshake
-// protocol/omp_version resolved at startup. If the binary is
-// missing, all fields are empty and /api/v1/meta returns 503.
 type staticMetaLoader struct {
 	ompBin          string
 	protocolVersion int
@@ -47,12 +45,14 @@ func main() {
 
 	loader, resolvedBin := resolveOmp(*ompBin)
 	manager := omp.NewManager(resolvedBin)
+	idem := middleware.NewIdempotencyCache(2048)
 
 	mux := http.NewServeMux()
 	mux.Handle("/", api.NewRouter(api.RouterDeps{
-		MetaLoader: loader,
-		Manager:    manager,
-		APIVersion: apiVersion,
+		MetaLoader:  loader,
+		Manager:     manager,
+		APIVersion:  apiVersion,
+		Idempotency: idem,
 	}))
 
 	srv := &http.Server{
