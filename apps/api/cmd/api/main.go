@@ -93,7 +93,6 @@ func main() {
 		if err := storage.ApplyMigrations(db); err != nil {
 			log.Printf("warning: migrations failed: %v", err)
 		}
-		// Load the signing key.
 		ed25519Path := filepath.Join(effectiveShareDir, ".ed25519")
 		passphrase := ""
 		if *passphraseEnv != "" {
@@ -125,6 +124,7 @@ func main() {
 		Idempotency: idem,
 		AuthState:   authState,
 		AuthMW:      authMW,
+		ShareDir:    effectiveShareDir,
 	}))
 
 	srv := &http.Server{

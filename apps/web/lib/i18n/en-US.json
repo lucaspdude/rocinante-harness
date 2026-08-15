@@ -24,5 +24,13 @@
   "settings.devices": "Devices",
   "settings.devicesEmpty": "No devices yet.",
   "settings.current": "current",
-  "settings.revoke": "Revoke"
+  "settings.revoke": "Revoke",
+  "onboarding.title": "Welcome",
+  "onboarding.subtitle": "Choose a passphrase to unlock the api.",
+  "onboarding.passphrase": "Passphrase",
+  "onboarding.confirm": "Confirm passphrase",
+  "onboarding.locale": "Language",
+  "onboarding.submit": "Finish setup",
+  "onboarding.complete": "Setup complete.",
+  "onboarding.goLogin": "Continue to sign in"
 }

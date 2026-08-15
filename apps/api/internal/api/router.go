@@ -20,6 +20,7 @@ type RouterDeps struct {
 	AuthState   *AuthState
 	AuthMW      func(http.Handler) http.Handler
 	Titles      *titleKey
+	ShareDir    string
 }
 
 // WrapHandler chains a middleware around an http.HandlerFunc,
@@ -36,6 +37,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 	r.Get("/api/v1/healthz", health.Handler)
 	r.Get("/api/v1/meta", omp.NewMetaHandler(deps.MetaLoader, deps.APIVersion))
+	r.Get("/api/v1/onboarding/status", OnboardingStatus(deps.ShareDir, deps.APIVersion))
 
 	if deps.AuthState != nil {
 		idem := middleware.IdempotencyMiddleware(deps.Idempotency)
