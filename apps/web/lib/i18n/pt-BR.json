@@ -7,5 +7,9 @@
   "login.submit": "Entrar",
   "login.invalidPassphrase": "Passphrase inválida. Tente novamente.",
   "login.networkError": "Não foi possível alcançar a api. Ela está rodando?",
-  "footer.tagline": "Harness de agente de IA auto-hospedado."
+  "footer.tagline": "Harness de agente de IA auto-hospedado.",
+  "agent.title": "Agente",
+  "agent.placeholder": "Digite um prompt...",
+  "agent.send": "Enviar",
+  "agent.stop": "Parar"
 }

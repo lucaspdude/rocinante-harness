@@ -7,5 +7,9 @@
   "login.submit": "Sign in",
   "login.invalidPassphrase": "Invalid passphrase. Try again.",
   "login.networkError": "Could not reach the api. Is it running?",
-  "footer.tagline": "Self-hosted AI agent harness."
+  "footer.tagline": "Self-hosted AI agent harness.",
+  "agent.title": "Agent",
+  "agent.placeholder": "Type a prompt...",
+  "agent.send": "Send",
+  "agent.stop": "Stop"
 }
