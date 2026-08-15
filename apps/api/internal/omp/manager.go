@@ -20,12 +20,14 @@ type SessionRecord struct {
 	CreatedAt       time.Time `json:"created_at"`
 	ProtocolVersion int       `json:"protocol_version"`
 	State           string    `json:"state"`
+	LastSeenAt      time.Time `json:"last_seen_at"`
 }
 
 // Manager owns the live set of sessions. Safe for concurrent use.
 type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
+	records  map[string]SessionRecord
 	factory  SessionFactory
 }
 
@@ -46,6 +48,7 @@ func (f spawnFactory) NewSession(opts Options) (*Session, error) {
 func NewManager(ompBin string) *Manager {
 	return &Manager{
 		sessions: make(map[string]*Session),
+		records:  make(map[string]SessionRecord),
 		factory:  spawnFactory{bin: ompBin},
 	}
 }
@@ -54,6 +57,7 @@ func NewManager(ompBin string) *Manager {
 func NewManagerWithFactory(f SessionFactory) *Manager {
 	return &Manager{
 		sessions: make(map[string]*Session),
+		records:  make(map[string]SessionRecord),
 		factory:  f,
 	}
 }
@@ -77,20 +81,23 @@ func (m *Manager) Create(ompCwd string) (*SessionRecord, error) {
 	proto, _ := sess.Version()
 
 	id := uuid.NewString()
-	rec := &SessionRecord{
+	now := time.Now().UTC()
+	rec := SessionRecord{
 		ID:              id,
 		OmpCwd:          ompCwd,
 		Cwd:             ompCwd,
-		CreatedAt:       time.Now().UTC(),
+		CreatedAt:       now,
 		ProtocolVersion: proto,
 		State:           "running",
+		LastSeenAt:      now,
 	}
 
 	m.mu.Lock()
 	m.sessions[id] = sess
+	m.records[id] = rec
 	m.mu.Unlock()
 
-	return rec, nil
+	return &rec, nil
 }
 
 // Get returns the session or nil if missing.
@@ -100,12 +107,32 @@ func (m *Manager) Get(id string) *Session {
 	return m.sessions[id]
 }
 
+// Record returns the SessionRecord or nil if missing.
+func (m *Manager) Record(id string) (SessionRecord, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rec, ok := m.records[id]
+	return rec, ok
+}
+
+// All returns a snapshot of every active session record.
+func (m *Manager) All() []SessionRecord {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]SessionRecord, 0, len(m.records))
+	for _, rec := range m.records {
+		out = append(out, rec)
+	}
+	return out
+}
+
 // Close removes the session and signals the child to exit.
 func (m *Manager) Close(id string) error {
 	m.mu.Lock()
 	sess, ok := m.sessions[id]
 	if ok {
 		delete(m.sessions, id)
+		delete(m.records, id)
 	}
 	m.mu.Unlock()
 	if !ok {

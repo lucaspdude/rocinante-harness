@@ -19,6 +19,7 @@ type RouterDeps struct {
 	Idempotency *middleware.IdempotencyCache
 	AuthState   *AuthState
 	AuthMW      func(http.Handler) http.Handler
+	Titles      *titleKey
 }
 
 // WrapHandler chains a middleware around an http.HandlerFunc,
@@ -36,7 +37,6 @@ func NewRouter(deps RouterDeps) http.Handler {
 	r.Get("/api/v1/healthz", health.Handler)
 	r.Get("/api/v1/meta", omp.NewMetaHandler(deps.MetaLoader, deps.APIVersion))
 
-	// Auth endpoints (no auth required for login/refresh/pairing).
 	if deps.AuthState != nil {
 		idem := middleware.IdempotencyMiddleware(deps.Idempotency)
 		r.Post("/api/v1/login", WrapHandler(idem, LoginHandler(deps.AuthState)))
@@ -44,7 +44,6 @@ func NewRouter(deps RouterDeps) http.Handler {
 		r.Post("/api/v1/pairing/redeem", WrapHandler(idem, PairingRedeemHandler(deps.AuthState)))
 	}
 
-	// Authenticated endpoints (only mounted when auth is configured).
 	if deps.AuthMW != nil {
 		r.Group(func(r chi.Router) {
 			r.Use(deps.AuthMW)
@@ -55,14 +54,20 @@ func NewRouter(deps RouterDeps) http.Handler {
 		})
 	}
 
-	// Session endpoints (no auth in P5; P11 adds onboarding).
 	idem := middleware.IdempotencyMiddleware(deps.Idempotency)
+	titles := deps.Titles
+	if titles == nil {
+		titles = newTitleStore()
+	}
 	r.Route("/api/v1/sessions", func(r chi.Router) {
 		r.Post("/", CreateSessionHandler(deps.Manager))
+		r.Get("/", SessionsListHandler(deps.Manager, titles))
 		r.Get("/{id}/events", StreamSessionHandler(deps.Manager))
 		r.Post("/{id}/prompt", WrapHandler(idem, PromptHandler(deps.Manager)))
 		r.Post("/{id}/abort", WrapHandler(idem, AbortHandler(deps.Manager)))
 		r.Post("/{id}/fork", WrapHandler(idem, ForkHandler(deps.Manager)))
+		r.Post("/{id}/title", SessionTitleHandler(deps.Manager, titles))
+		r.Delete("/{id}", SessionDeleteHandler(deps.Manager, titles))
 	})
 
 	_ = auth.ErrPassphraseMismatch
