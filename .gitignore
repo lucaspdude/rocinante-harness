@@ -1,0 +1,21 @@
+node_modules/
+.next/
+.turbo/
+.next/cache/
+.next/types/
+**/dist/
+**/bin/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+.ed25519
+.env*
+.DS_Store
+coverage/
+*.log
+*.tsbuildinfo
+
+# Next.js dev-time agent rule files (auto-recreated by `next dev`).
+apps/web/AGENTS.md
+apps/web/CLAUDE.md
