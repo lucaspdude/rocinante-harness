@@ -17,6 +17,7 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
+	sshpkg "github.com/lucaspdude/rocinante-harness/apps/api/internal/ssh"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/storage"
 )
 
@@ -126,6 +127,15 @@ func main() {
 		AuthMW:      authMW,
 		ShareDir:    effectiveShareDir,
 	}))
+
+	if dbErr == nil && authMW != nil {
+		sshHandler := &sshpkg.Handler{
+			Keys:    sshpkg.NewKeyStore(db),
+			Servers: sshpkg.NewServerStore(db),
+			AuthMW:  authMW,
+		}
+		mux.Handle("/api/v1/ssh/", sshHandler.Routes())
+	}
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("127.0.0.1:%d", *port),

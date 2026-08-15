@@ -26,7 +26,7 @@ func TestOpenAndApplyMigrationsIdempotent(t *testing.T) {
 	if err := row.Scan(&v); err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	if v != 1 {
+	if v != 2 {
 		t.Errorf("version = %d, want 1", v)
 	}
 	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
