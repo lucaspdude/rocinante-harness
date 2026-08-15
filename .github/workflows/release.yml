@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Build api
+        run: |
+          mkdir -p dist
+          for platform in linux:amd64 linux:arm64 darwin:amd64 darwin:arm64 windows:amd64; do
+            os=$(echo "$platform" | cut -d: -f1)
+            arch=$(echo "$platform" | cut -d: -f2)
+            ext=""
+            [ "$os" = "windows" ] && ext=".exe"
+            out="dist/api-${os}-${arch}${ext}"
+            GOOS=$os GOARCH=$arch \
+              go build -trimpath -ldflags="-s -w" \
+                -o "$out" ./apps/api/cmd/api
+          done
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-binaries
+          path: dist/api-*
+
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Build harness
+        run: bash scripts/build-harness.sh
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-binaries
+          path: apps/harness/bin/roc-harness-*
+
+  release:
+    needs: [api, harness]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-binaries
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: harness-binaries
+          path: apps/harness/bin/
+      - name: Compute checksums
+        run: |
+          cd dist
+          sha256sum api-* > SHA256SUMS
+          mv SHA256SUMS ../dist/
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/api-*
+            dist/SHA256SUMS
+            apps/harness/bin/roc-harness-*
+        body: |
+          Release ${{ github.ref_name }}.
+          See docs/deploy/ for installation.
