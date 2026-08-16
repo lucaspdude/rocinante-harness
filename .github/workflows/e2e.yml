@@ -40,11 +40,16 @@ jobs:
         working-directory: apps/web
         run: |
           pnpm build
-          # Next 16 standalone omits .next/static/ by default.
-          # Copy into the standalone output so the minimal server can
-          # serve CSS/JS chunks.
+          # Next 16 standalone omits .next/static/ by default. The minimal
+          # server.js runs from .next/standalone/apps/web and looks up
+          # chunks in apps/web/.next/static. Copy the missing dir into
+          # BOTH locations: the standalone-root copy (for the build
+          # trace), and the apps/web/.next/ copy (which the server
+          # actually reads).
           mkdir -p .next/standalone/.next
+          mkdir -p .next/standalone/apps/web/.next
           cp -r .next/static/. .next/standalone/.next/static/
+          cp -r .next/static/. .next/standalone/apps/web/.next/static/
 
       - name: Init api with passphrase
         env:
@@ -83,6 +88,8 @@ jobs:
 
       - name: Run E2E
         working-directory: apps/web
+        env:
+          RH_E2E_PASSPHRASE: e2e-passphrase
         run: pnpm exec playwright test --config e2e/playwright.config.ts --reporter=line
 
       - name: Upload screenshots on failure
