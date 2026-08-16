@@ -18,23 +18,13 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/envconfig"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
 	sshpkg "github.com/lucaspdude/rocinante-harness/apps/api/internal/ssh"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/storage"
 )
 
 const apiVersion = "0.1.0"
-
-func defaultShareDir() string {
-	if v := os.Getenv("ROCHASSEN_SHARE_DIR"); v != "" {
-		return v
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "/tmp/rocinante-harness"
-	}
-	return filepath.Join(home, ".local", "share", "rocinante-harness")
-}
 
 type staticMetaLoader struct {
 	ompBin          string
@@ -51,7 +41,7 @@ func main() {
 	port := flag.Int("port", 30179, "HTTP port")
 	ompBin := flag.String("omp-bin", "", "path to the omp binary")
 	noEncryption := flag.Bool("no-encryption", false, "store Ed25519 key in plaintext (dev only)")
-	shareDir := flag.String("share-dir", "", "base directory for key/db/logs")
+	shareDir := flag.String("share-dir", "", "base directory for key/db/logs (overrides ROCINANTE_SHARE_DIR)")
 	passphraseEnv := flag.String("passphrase-env", "", "env var name for the passphrase")
 	bind := flag.String("bind", "127.0.0.1", "bind address (127.0.0.1 | 0.0.0.0)")
 	corsAllowlist := flag.String("cors-allowlist", "", "comma-separated allowed Origin values (required when --bind is 0.0.0.0)")
@@ -69,7 +59,7 @@ func main() {
 	if len(flag.Args()) > 0 && flag.Args()[0] == "init" {
 		dir := *shareDir
 		if dir == "" {
-			dir = defaultShareDir()
+			dir = envconfig.ShareDir()
 		}
 		if err := initShare(dir, *noEncryption, *passphraseEnv); err != nil {
 			log.Fatalf("init: %v", err)
@@ -79,7 +69,7 @@ func main() {
 
 	effectiveShareDir := *shareDir
 	if effectiveShareDir == "" {
-		effectiveShareDir = defaultShareDir()
+		effectiveShareDir = envconfig.ShareDir()
 	}
 
 	loader, resolvedBin := resolveOmp(*ompBin)

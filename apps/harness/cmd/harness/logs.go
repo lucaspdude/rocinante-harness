@@ -3,7 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"path/filepath"
 
+	"github.com/lucaspdude/rocinante-harness/apps/harness/internal/envconfig"
 	"github.com/lucaspdude/rocinante-harness/apps/harness/internal/runner"
 )
 
@@ -13,8 +15,8 @@ func runLogs(args []string) error {
 	follow := fs.Bool("follow", false, "follow the log (tail -f style)")
 	_ = fs.Parse(args)
 
-	shareDir := defaultShareDir()
-	logDir := shareDir + "/logs"
+	shareDir := envconfig.ShareDir()
+	logDir := filepath.Join(shareDir, "logs")
 	if !*follow {
 		out, err := runner.TailLogs(logDir, *tail)
 		if err != nil {
@@ -23,8 +25,6 @@ func runLogs(args []string) error {
 		fmt.Print(out)
 		return nil
 	}
-	// Follow mode: just print the last tail and exit (proper
-	// tail-f is out of scope for this MVP).
 	out, err := runner.TailLogs(logDir, *tail)
 	if err != nil {
 		return err

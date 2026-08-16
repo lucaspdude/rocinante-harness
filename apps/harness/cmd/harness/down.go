@@ -5,6 +5,7 @@ import (
 	"log"
 	"syscall"
 
+	"github.com/lucaspdude/rocinante-harness/apps/harness/internal/envconfig"
 	"github.com/lucaspdude/rocinante-harness/apps/harness/internal/runner"
 )
 
@@ -12,7 +13,7 @@ func runDown(args []string) error {
 	fs := flag.NewFlagSet("down", flag.ExitOnError)
 	_ = fs.Parse(args)
 
-	cacheDir := defaultCacheDir()
+	cacheDir := envconfig.CacheDir()
 	state, err := runner.LoadState(cacheDir)
 	if err != nil {
 		log.Printf("no state file found at %s", cacheDir)
@@ -27,15 +28,4 @@ func runDown(args []string) error {
 	}
 	_ = runner.New(cacheDir, "").StopAll()
 	return nil
-}
-
-func terminateByPid(pid int, sig syscall.Signal) error {
-	if pid <= 0 {
-		return nil
-	}
-	proc, err := osFindProcess(pid)
-	if err != nil {
-		return err
-	}
-	return proc.Signal(sig)
 }

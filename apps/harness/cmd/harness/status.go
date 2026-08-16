@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/lucaspdude/rocinante-harness/apps/harness/internal/envconfig"
 	"github.com/lucaspdude/rocinante-harness/apps/harness/internal/runner"
 )
 
@@ -13,7 +14,7 @@ func runStatus(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	_ = fs.Parse(args)
 
-	cacheDir := defaultCacheDir()
+	cacheDir := envconfig.CacheDir()
 	state, err := runner.LoadState(cacheDir)
 	if err != nil {
 		fmt.Println("no harness state")
