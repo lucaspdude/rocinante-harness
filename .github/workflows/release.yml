@@ -68,7 +68,13 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Build web standalone
-        run: pnpm build
+        run: |
+          pnpm build
+          # Next 16 standalone output omits static assets by default.
+          # Copy the public/ and .next/static/ directories into the
+          # standalone output so the minimal server can serve them.
+          cp -r apps/web/public apps/web/.next/standalone/apps/web/public 2>/dev/null || true
+          cp -r apps/web/.next/static apps/web/.next/standalone/.next/static 2>/dev/null || true
       - name: Tar web
         run: |
           mkdir -p ../../dist
