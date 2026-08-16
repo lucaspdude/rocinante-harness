@@ -11,10 +11,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"syscall"
 	"time"
-	"runtime"
+
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
@@ -38,13 +38,9 @@ func (s staticMetaLoader) OmpVersion() (int, string) {
 }
 
 func main() {
-	port := flag.Int("port", 30179, "HTTP port")
-	ompBin := flag.String("omp-bin", "", "path to the omp binary")
-	noEncryption := flag.Bool("no-encryption", false, "store Ed25519 key in plaintext (dev only)")
 	shareDir := flag.String("share-dir", "", "base directory for key/db/logs (overrides ROCINANTE_SHARE_DIR)")
-	passphraseEnv := flag.String("passphrase-env", "", "env var name for the passphrase")
-	bind := flag.String("bind", "127.0.0.1", "bind address (127.0.0.1 | 0.0.0.0)")
-	corsAllowlist := flag.String("cors-allowlist", "", "comma-separated allowed Origin values (required when --bind is 0.0.0.0)")
+	noEncryption := flag.Bool("no-encryption", false, "store Ed25519 key in plaintext (dev only)")
+	port := flag.Int("port", 30179, "HTTP port (overrides ROCINANTE_PORT)")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate path (PEM)")
 	tlsKey := flag.String("tls-key", "", "TLS private key path (PEM)")
 	showVersion := flag.Bool("version", false, "print version and exit")
@@ -64,7 +60,7 @@ func main() {
 		if dir == "" {
 			dir = envconfig.ShareDir()
 		}
-		if err := initShare(dir, *noEncryption, *passphraseEnv); err != nil {
+		if err := initShare(dir, *noEncryption, envconfig.PassphraseEnv()); err != nil {
 			log.Fatalf("init: %v", err)
 		}
 		return
@@ -75,13 +71,14 @@ func main() {
 		effectiveShareDir = envconfig.ShareDir()
 	}
 
-	loader, resolvedBin := resolveOmp(*ompBin)
+	passphrase := ""
+	if envName := envconfig.PassphraseEnv(); envName != "" {
+		passphrase = os.Getenv(envName)
+	}
+
+	loader, resolvedBin := resolveOmp(envconfig.OmpBin())
 	manager := omp.NewManager(resolvedBin)
 	idem := middleware.NewIdempotencyCache(2048)
-
-	if *bind == "0.0.0.0" && *corsAllowlist == "" {
-		log.Fatalf("--bind 0.0.0.0 requires --cors-allowlist (defense-in-depth)")
-	}
 
 	dbPathResolved := filepath.Join(effectiveShareDir, "roc-harness.db")
 	db, dbErr := storage.Open(dbPathResolved)
@@ -98,10 +95,6 @@ func main() {
 			log.Printf("warning: migrations failed: %v", err)
 		}
 		ed25519Path := filepath.Join(effectiveShareDir, ".ed25519")
-		passphrase := ""
-		if *passphraseEnv != "" {
-			passphrase = os.Getenv(*passphraseEnv)
-		}
 		sk, pk, err := auth.LoadKeyFile(ed25519Path, passphrase)
 		if err != nil {
 			log.Printf("warning: cannot load %s (%v); auth endpoints disabled", ed25519Path, err)
@@ -120,16 +113,9 @@ func main() {
 		defer db.Close()
 	}
 
-	var corsOrigins []string
-	if *corsAllowlist != "" {
-		for _, o := range strings.Split(*corsAllowlist, ",") {
-			corsOrigins = append(corsOrigins, strings.TrimSpace(o))
-		}
-	}
-
 	mux := http.NewServeMux()
 	mux.Handle("/", middleware.TLSHandler(
-		middleware.CORSHandler(middleware.CORSConfig{AllowedOrigins: corsOrigins})(
+		middleware.CORSHandler(middleware.CORSConfig{})(
 			api.NewRouter(api.RouterDeps{
 				MetaLoader:  loader,
 				Manager:     manager,
@@ -151,7 +137,13 @@ func main() {
 		mux.Handle("/api/v1/ssh/", middleware.TLSHandler(sshHandler.Routes()))
 	}
 
-	addr := *bind + ":" + fmt.Sprintf("%d", *port)
+	// The api always binds to loopback. The web server (which is
+	// the only thing that talks to it) reaches us via the Next.js
+	// rewrite on the same host. Public access is delegated to
+	// whatever fronts the web server (Caddy, Cloudflare, a LAN IP
+	// directly). This removes the CORS / bind / allowlist flags
+	// that produced so much installer friction.
+	addr := "127.0.0.1:" + fmt.Sprintf("%d", *port)
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
@@ -170,13 +162,13 @@ func main() {
 
 	if *tlsCert != "" && *tlsKey != "" {
 		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-		log.Printf("api %s listening on https://%s (cors=%v)", apiVersion, addr, corsOrigins)
+		log.Printf("api %s listening on https://%s", apiVersion, addr)
 		if err := srv.ListenAndServeTLS(*tlsCert, *tlsKey); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error: %v", err)
 		}
 	} else {
-		log.Printf("api %s listening on http://%s (omp-bin=%q share-dir=%q no-encryption=%v)",
-			apiVersion, addr, resolvedBin, effectiveShareDir, *noEncryption)
+		log.Printf("api %s listening on http://%s (omp-bin=%q share-dir=%q)",
+			apiVersion, addr, resolvedBin, effectiveShareDir)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error: %v", err)
 		}

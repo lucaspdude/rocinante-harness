@@ -8,8 +8,12 @@ import { tokenStore, type StoredTokens } from "../auth/token-store";
 
 export type AuthExpiredReason = "auth_token_expired" | "auth_missing" | "auth_invalid_token";
 
-const API_URL =
-  process.env.NEXT_PUBLIC_RH_API_URL ?? "http://127.0.0.1:30179";
+// Use a relative path so the browser always talks to the same origin
+// (the web server on :30178). The web server proxies /api/v1/* to
+// the real api on :30179 via the Next.js rewrite in next.config.ts.
+// This avoids CORS issues entirely and lets the same bundle work
+// for any deployment topology (local, LAN, public hostname).
+const API_URL = "";
 
 export interface ApiError {
   code: string;
