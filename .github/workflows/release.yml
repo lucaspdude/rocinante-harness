@@ -71,8 +71,8 @@ jobs:
         run: pnpm build
       - name: Tar web
         run: |
-          cd apps/web/.next/standalone
-          tar -czf ../../../../dist/web.tar.gz .
+          mkdir -p ../../dist
+          tar -czf ../../dist/web.tar.gz -C .next/standalone .
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
