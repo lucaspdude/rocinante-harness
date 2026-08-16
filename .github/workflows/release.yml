@@ -68,14 +68,28 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Build web standalone
+        env:
+          # NEXT_PUBLIC_RH_API_URL is baked into the client bundle at
+          # build time. The default http://127.0.0.1:30179 only works
+          # when the browser is running on the same host as the api.
+          # We bake the same default for hosted installs; users can
+          # override at runtime by setting ROCINANTE_PUBLIC_API_URL
+          # in the systemd unit (already supported by the installer)
+          # and rebuilding the web bundle locally if they need a
+          # different default.
+          NEXT_PUBLIC_RH_API_URL: http://127.0.0.1:30179
         run: |
           set -euo pipefail
           pnpm build
-          # Next 16 standalone output omits .next/static/ by default.
-          # working-directory is apps/web, so paths are relative to it.
-          # The standalone tree has no .next/ yet, so create it first.
+          # Next 16 standalone omits .next/static/ by default. Copy
+          # into the standalone output so the minimal server can
+          # serve CSS/JS chunks. Also copy under apps/web/.next/ —
+          # the minimal server resolves assets relative to its own
+          # __dirname (apps/web).
           mkdir -p .next/standalone/.next
+          mkdir -p .next/standalone/apps/web/.next
           cp -r .next/static/. .next/standalone/.next/static/
+          cp -r .next/static/. .next/standalone/apps/web/.next/static/
           echo "---standalone .next/static---"
           find .next/standalone/.next/static -maxdepth 2 -type d
       - name: Tar web
