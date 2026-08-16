@@ -3,7 +3,6 @@ package middleware
 import (
 	"crypto/tls"
 	"net/http"
-	"strings"
 )
 
 // TLSConfig bundles the knobs needed to enable TLS at the api
@@ -36,35 +35,20 @@ type CORSConfig struct {
 
 // CORSHandler enforces the allow-list. Echoes the request Origin
 // header when it matches; otherwise returns 403.
+// CORSHandler is intentionally a no-op now that the web is the
+// only thing that talks to the api (via the Next.js rewrite in
+// apps/web/next.config.ts, which proxies /api/v1/* to
+// 127.0.0.1:30179/api/v1/* in-process). The browser sees the
+// request as same-origin (the URL is the web, not the api), so
+// no cross-origin CORS preflight is issued. Any request that
+// reaches this handler is either same-origin (allowed) or came
+// from a private network and should be rejected — but rejecting
+// the latter is the responsibility of the firewall, not this
+// middleware. We keep the function in place for compatibility
+// with old callers but it now just chains to the next handler.
 func CORSHandler(cfg CORSConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-			if origin == "" {
-				// Same-origin request — pass through.
-				next.ServeHTTP(w, r)
-				return
-			}
-			allowed := false
-			for _, o := range cfg.AllowedOrigins {
-				if strings.EqualFold(o, origin) {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				http.Error(w, "{\"code\":\"cors_forbidden\"}", http.StatusForbidden)
-				return
-			}
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
 			next.ServeHTTP(w, r)
 		})
 	}
