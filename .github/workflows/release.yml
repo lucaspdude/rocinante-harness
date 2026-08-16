@@ -69,14 +69,13 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build web standalone
         run: |
+          set -euo pipefail
           pnpm build
-          # Next 16 standalone output omits public/ and .next/static/
-          # by default. The working-directory is apps/web, so paths are
-          # relative to it. Copy the missing dirs into the standalone
-          # output so the minimal server can serve them.
-          cp -r public .next/standalone/apps/web/public 2>/dev/null || true
-          cp -r .next/static .next/standalone/.next/static 2>/dev/null || true
-          # Verify the copy actually landed where we expect it.
+          # Next 16 standalone output omits .next/static/ by default.
+          # working-directory is apps/web, so paths are relative to it.
+          # The standalone tree has no .next/ yet, so create it first.
+          mkdir -p .next/standalone/.next
+          cp -r .next/static/. .next/standalone/.next/static/
           echo "---standalone .next/static---"
           find .next/standalone/.next/static -maxdepth 2 -type d
       - name: Tar web
