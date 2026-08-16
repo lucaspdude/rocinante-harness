@@ -126,15 +126,6 @@ fi
 if [ "$GOOS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
   ENV_FILE="/etc/roc-harness/env"
   mkdir -p /etc/roc-harness
-  if [ ! -f "$ENV_FILE" ]; then
-    {
-      echo "ROCINANTE_PASSPHRASE=${ROCINANTE_PASSPHRASE:-}"
-      echo "OMP_BIN=$SHARE_DIR/bin/omp"
-    } > "$ENV_FILE"
-    chmod 0600 "$ENV_FILE"
-  elif ! grep -q '^ROCINANTE_PASSPHRASE=' "$ENV_FILE" && [ -n "${ROCINANTE_PASSPHRASE:-}" ]; then
-    echo "ROCINANTE_PASSPHRASE=$ROCINANTE_PASSPHRASE" >> "$ENV_FILE"
-  fi
 
   # Find the node binary. /usr/bin/node is the common location on
   # Debian/Ubuntu; nvm puts it under ~/.nvm/versions/node/v*/bin/node.
@@ -151,13 +142,25 @@ if [ "$GOOS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     echo "       install node first (apt install nodejs, brew install node, etc.)" >&2
     exit 1
   fi
+  echo ">> node binary: $NODE_BIN"
+
+  # Seed /etc/roc-harness/env (don't overwrite an existing file;
+  # only add the keys that aren't already there).
   if [ ! -f "$ENV_FILE" ]; then
     {
       echo "ROCINANTE_PASSPHRASE=${ROCINANTE_PASSPHRASE:-}"
       echo "OMP_BIN=$SHARE_DIR/bin/omp"
       echo "PORT=30178"
     } > "$ENV_FILE"
+    chmod 0600 "$ENV_FILE"
+  else
+    grep -q '^ROCINANTE_PASSPHRASE=' "$ENV_FILE" || \
+      [ -n "${ROCINANTE_PASSPHRASE:-}" ] && \
+      echo "ROCINANTE_PASSPHRASE=$ROCINANTE_PASSPHRASE" >> "$ENV_FILE"
+    grep -q '^OMP_BIN='              "$ENV_FILE" || echo "OMP_BIN=$SHARE_DIR/bin/omp" >> "$ENV_FILE"
+    grep -q '^PORT='                "$ENV_FILE" || echo "PORT=30178"               >> "$ENV_FILE"
   fi
+
   # No ProtectHome: the install path defaults to $HOME/.local/share,
   # which lives under /root when run as root and systemd's
   # ProtectHome=yes would refuse to exec /root/.local.
