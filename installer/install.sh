@@ -2,20 +2,21 @@
 # roc-harness installer —
 #   Downloads the latest API + harness binaries from the latest
 #   release of lucaspdude/rocinante-harness into
-#   ${ROCINANTE_SHARE_DIR}/bin, then runs `api init` to create the
-#   passphrase-wrapped key.
+#   ${ROCINANTE_SHARE_DIR}/bin, runs `api init` to create the
+#   passphrase-wrapped key, optionally installs the `omp` binary
+#   if missing, and optionally installs + enables a systemd
+#   service for the api.
 #
-# Override the version via ROCINANTE_VERSION (e.g. v0.1.1) to pin
-# to a specific release. Set ROCINANTE_SKIP_INIT=1 to skip init.
-# Set ROCINANTE_REPO=owner/name to install from a fork.
-#
-# All variables honour both ROCINANTE_* (preferred) and ROCHASSEN_*
-# (legacy alias from the early alpha) — the first one set wins.
+# All flags are env vars (any prefix `ROCHASSEN_*` is a legacy
+# alias for the matching `ROCINANTE_*`):
+#   ROCINANTE_VERSION=v0.1.5       pin to a specific release
+#   ROCINANTE_SKIP_INIT=1         skip the `api init` prompt
+#   ROCINANTE_SKIP_OMP=1          skip the omp install
+#   ROCINANTE_INSTALL_SERVICE=1   write + enable systemd units
+#   ROCINANTE_REPO=owner/name      install from a fork
 set -euo pipefail
 
-# pick NAME [ALIASES...] — sets NAME to the first non-empty value
-# among the supplied *env-var* names, defaulting to NAME=default
-# when no alias is set.
+# Pick the first non-empty value among the supplied names.
 pick() {
   local name="$1"
   shift
@@ -30,7 +31,7 @@ pick() {
   return 1
 }
 
-pick REPO ROCINANTE_REPO ROCHASSEN_REPO \
+pick REPO "${ROCINANTE_REPO:-}" "${ROCHASSEN_REPO:-}" 2>/dev/null \
   || REPO="lucaspdude/rocinante-harness"
 
 # Resolve the version: explicit env > latest release tag > main.
@@ -62,7 +63,6 @@ case "$ARCH" in
 esac
 GOOS=$(uname | tr '[:upper:]' '[:lower:]')
 
-# SHARE_DIR accepts both ROCINANTE_SHARE_DIR and ROCHASSEN_SHARE_DIR.
 if [ -n "${ROCINANTE_SHARE_DIR:-${ROCHASSEN_SHARE_DIR:-}}" ]; then
   SHARE_DIR="${ROCINANTE_SHARE_DIR:-${ROCHASSEN_SHARE_DIR:-}}"
 else
@@ -70,10 +70,19 @@ else
 fi
 mkdir -p "$SHARE_DIR/bin"
 
-# Detect skip-init flag (either prefix); default 0.
 SKIP_INIT="0"
-if pick SKIP_INIT_VAL ROCINANTE_SKIP_INIT ROCHASSEN_SKIP_INIT; then
-  SKIP_INIT="$SKIP_INIT_VAL"
+if pick SKIP_INIT ROCINANTE_SKIP_INIT ROCHASSEN_SKIP_INIT; then
+  SKIP_INIT="$SKIP_INIT"
+fi
+
+SKIP_OMP="0"
+if pick SKIP_OMP ROCINANTE_SKIP_OMP ROCHASSEN_SKIP_OMP; then
+  SKIP_OMP="$SKIP_OMP"
+fi
+
+INSTALL_SERVICE="0"
+if pick INSTALL_SERVICE ROCINANTE_INSTALL_SERVICE ROCHASSEN_INSTALL_SERVICE; then
+  INSTALL_SERVICE="$INSTALL_SERVICE"
 fi
 
 if [ "$VERSION" = "main" ]; then
@@ -107,21 +116,120 @@ HARNESS_NAME="roc-harness-${GOOS}-${GOARCH}"
 download "$API_NAME"
 download "$HARNESS_NAME"
 
-# Symlink the platform-suffixed binaries to the canonical names
-# (api, roc-harness) so the rest of the workflow can run them
-# without knowing the GOOS/GOARCH tuple.
 ln -sf "$SHARE_DIR/bin/$API_NAME" "$SHARE_DIR/bin/api"
 ln -sf "$SHARE_DIR/bin/$HARNESS_NAME" "$SHARE_DIR/bin/roc-harness"
 
 echo "installed to $SHARE_DIR/bin"
 ls -la "$SHARE_DIR/bin"
 
+# --- omp install (optional, best-effort) ---------------------------
+# The api needs the omp binary on $PATH (or pointed at via
+# --omp-bin). If omp is missing and the user has not opted out,
+# try a best-effort download from the omp project's own release
+# page. If the install fails we print a warning rather than
+# aborting — the api boots fine without omp; the user can install
+# it manually later.
+install_omp() {
+  if command -v omp >/dev/null 2>&1; then
+    echo ">> omp already on PATH: $(command -v omp)"
+    return 0
+  fi
+  if [ "$SKIP_OMP" = "1" ]; then
+    echo ">> ROCINANTE_SKIP_OMP=1; leaving omp install for the user"
+    return 0
+  fi
+  if [ "$GOOS" != "linux" ]; then
+    echo ">> skip omp auto-install: not on linux ($GOOS)"
+    return 0
+  fi
+  echo ">> omp not found; attempting best-effort install"
+  local omp_url="https://github.com/l3yx/oh-my-pi/releases/latest/download/omp-linux-${GOARCH}"
+  local omp_dest="$SHARE_DIR/bin/omp"
+  if command -v curl >/dev/null; then
+    if curl -fsSL -o "$omp_dest" "$omp_url" 2>/dev/null && [ -s "$omp_dest" ]; then
+      chmod +x "$omp_dest"
+      echo ">> installed omp to $omp_dest"
+      return 0
+    fi
+  fi
+  echo "warning: omp install failed; sessions will return spawn_failed until"
+  echo "         the user installs omp and points --omp-bin at it"
+  return 1
+}
+install_omp || true
+
+# --- init --------------------------------------------------------
 if [ "$SKIP_INIT" = "1" ]; then
   echo "skip-init=1; skipping init"
-  exit 0
+else
+  "$SHARE_DIR/bin/api" --share-dir "$SHARE_DIR" init
 fi
 
-"$SHARE_DIR/bin/api" --share-dir "$SHARE_DIR" init
+# --- systemd service install (optional) ---------------------------
+# Writes a unit file that runs the api under systemd with the
+# passphrase pulled from /etc/roc-harness/passphrase. On Linux
+# distros that ship systemd. On macOS / Windows this is a no-op.
+install_service() {
+  if [ "$INSTALL_SERVICE" != "1" ]; then
+    return 0
+  fi
+  if [ "$GOOS" != "linux" ]; then
+    echo ">> service install not supported on $GOOS; skipping"
+    return 0
+  fi
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "warning: systemctl not found; skipping service install"
+    return 0
+  fi
+
+  local unit_dir="/etc/systemd/system"
+  local env_dir="/etc/roc-harness"
+  mkdir -p "$unit_dir" "$env_dir"
+
+  local env_file="$env_dir/passphrase"
+  if [ ! -f "$env_file" ]; then
+    if [ -t 0 ]; then
+      printf 'ROCINANTE_PASSPHRASE=' > "$env_file.tmp"
+      stty -echo 2>/dev/null || true
+      read -r -p "passphrase for the service (will be stored in $env_file, mode 0600): " PW
+      stty echo 2>/dev/null || true
+      echo
+      echo "$PW" >> "$env_file.tmp"
+      mv "$env_file.tmp" "$env_file"
+      chmod 0600 "$env_file"
+      echo ">> wrote $env_file"
+    else
+      echo "warning: non-interactive shell; skipping passphrase write."
+      echo "         create $env_file with ROCINANTE_PASSPHRASE=... before"
+      echo "         starting the service."
+    fi
+  fi
+
+  cat > "$unit_dir/roc-harness-api.service" <<UNIT
+[Unit]
+Description=roc-harness api
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$SHARE_DIR
+ExecStart=$SHARE_DIR/bin/api --port 30179 --share-dir $SHARE_DIR --passphrase-env ROCINANTE_PASSPHRASE
+EnvironmentFile=$env_file
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/roc-harness-api.log
+StandardError=append:/var/log/roc-harness-api.log
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  systemctl daemon-reload
+  systemctl enable --now roc-harness-api
+  echo ">> enabled roc-harness-api"
+  systemctl --no-pager status roc-harness-api | head -5
+}
+install_service
 
 echo "done."
 echo "share-dir: $SHARE_DIR"
