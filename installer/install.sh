@@ -16,7 +16,8 @@
 #   ROCINANTE_REPO=owner/name      install from a fork
 set -euo pipefail
 
-# Pick the first non-empty value among the supplied names.
+# pick NAME [VAR_NAME...] — sets NAME to the first non-empty
+# value among the supplied env-var names.
 pick() {
   local name="$1"
   shift
@@ -31,7 +32,7 @@ pick() {
   return 1
 }
 
-pick REPO "${ROCINANTE_REPO:-}" "${ROCHASSEN_REPO:-}" 2>/dev/null \
+pick REPO ROCINANTE_REPO ROCHASSEN_REPO \
   || REPO="lucaspdude/rocinante-harness"
 
 # Resolve the version: explicit env > latest release tag > main.
