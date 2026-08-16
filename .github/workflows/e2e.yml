@@ -33,10 +33,6 @@ jobs:
         working-directory: apps/api
         run: go mod download
 
-      - name: Install Go deps (harness)
-        working-directory: apps/harness
-        run: go mod download
-
       - name: Install (pnpm)
         run: pnpm install --frozen-lockfile
 
@@ -48,31 +44,32 @@ jobs:
         working-directory: apps/web
         run: pnpm build
 
-      - name: Start harness (api + web)
+      - name: Init api with passphrase
         run: |
           mkdir -p /tmp/rh-share
-          ROCINANTE_SHARE_DIR=/tmp/rh-share \
-            ./bin/api init
+          echo "e2e-passphrase" | ROCINANTE_SHARE_DIR=/tmp/rh-share ./bin/api init
+
+      - name: Start api
+        run: |
           ROCINANTE_SHARE_DIR=/tmp/rh-share \
             ROCINANTE_PASSPHRASE=e2e-passphrase \
             ROCINANTE_BIND=127.0.0.1 \
-            ./bin/api --port 30179 &
-          cd apps/web && PORT=30178 node server.js &
-          sleep 5
+            nohup ./bin/api --port 30179 > /tmp/api.log 2>&1 &
 
-      - name: Wait for api
+      - name: Start web
+        working-directory: apps/web
         run: |
-          for i in 1 2 3 4 5; do
-            curl -sf http://127.0.0.1:30179/api/v1/healthz && break
-            sleep 3
-          done
+          PORT=30178 nohup node server.js > /tmp/web.log 2>&1 &
 
-      - name: Wait for web
+      - name: Wait for api + web
         run: |
-          for i in 1 2 3 4 5; do
-            curl -sfI http://127.0.0.1:30178/ && break
-            sleep 3
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:30179/api/v1/healthz > /dev/null && \
+              curl -sfI http://127.0.0.1:30178/ > /dev/null && break
+            sleep 2
           done
+          curl -sf http://127.0.0.1:30179/api/v1/healthz
+          echo
 
       - name: Install Playwright browsers
         working-directory: apps/web
