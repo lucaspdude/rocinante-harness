@@ -9,21 +9,22 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/lucaspdude/rocinante-harness/apps/harness/internal/envconfig"
 	"github.com/lucaspdude/rocinante-harness/apps/harness/internal/runner"
 )
 
 func runUp(args []string) error {
 	fs := flag.NewFlagSet("up", flag.ExitOnError)
-	apiBin := fs.String("api-bin", defaultAPIBin(), "path to the api binary")
-	webDir := fs.String("web-dir", defaultWebDir(), "path to the Next build output")
+	apiBin := fs.String("api-bin", envconfig.APIBin(), "path to the api binary")
+	webDir := fs.String("web-dir", envconfig.WebDir(), "path to the Next build output")
 	apiPort := fs.Int("api-port", 30179, "HTTP port for the api")
 	webPort := fs.Int("web-port", 30178, "HTTP port for the web")
-	shareDir := fs.String("share-dir", defaultShareDir(), "directory for key/db/logs")
+	shareDir := fs.String("share-dir", envconfig.ShareDir(), "directory for key/db/logs (overrides ROCINANTE_SHARE_DIR)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	cacheDir := defaultCacheDir()
+	cacheDir := envconfig.CacheDir()
 	logDir := filepath.Join(*shareDir, "logs")
 	r := runner.New(cacheDir, logDir)
 
