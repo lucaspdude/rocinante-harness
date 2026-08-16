@@ -58,7 +58,7 @@ echo ">> installing roc-harness ${VERSION} from ${REPO}"
 
 ARCH=$(uname -m)
 case "$ARCH" in
-  x86_64) GOARCH=amd64 ;;
+  x86_64) GOARCH=x64 ;;
   arm64|aarch64) GOARCH=arm64 ;;
   *) echo "unsupported arch: $ARCH" >&2; exit 1 ;;
 esac
@@ -126,10 +126,12 @@ ls -la "$SHARE_DIR/bin"
 # --- omp install (optional, best-effort) ---------------------------
 # The api needs the omp binary on $PATH (or pointed at via
 # --omp-bin). If omp is missing and the user has not opted out,
-# try a best-effort download from the omp project's own release
-# page. If the install fails we print a warning rather than
-# aborting — the api boots fine without omp; the user can install
-# it manually later.
+# fetch the matching asset from can1357/oh-my-pi releases
+# (the upstream omp project). Linux glibc and musl variants are
+# both available; we prefer glibc for the common case. macOS
+# darwin / Windows windows assets are also named darwin-x64 +
+# darwin-arm64 / windows-x64.exe. Failure is non-fatal — the api
+# boots fine without omp; the user can install it manually later.
 install_omp() {
   if command -v omp >/dev/null 2>&1; then
     echo ">> omp already on PATH: $(command -v omp)"
@@ -139,23 +141,51 @@ install_omp() {
     echo ">> ROCINANTE_SKIP_OMP=1; leaving omp install for the user"
     return 0
   fi
-  if [ "$GOOS" != "linux" ]; then
-    echo ">> skip omp auto-install: not on linux ($GOOS)"
-    return 0
-  fi
-  echo ">> omp not found; attempting best-effort install"
-  local omp_url="https://github.com/l3yx/oh-my-pi/releases/latest/download/omp-linux-${GOARCH}"
-  local omp_dest="$SHARE_DIR/bin/omp"
-  if command -v curl >/dev/null; then
-    if curl -fsSL -o "$omp_dest" "$omp_url" 2>/dev/null && [ -s "$omp_dest" ]; then
-      chmod +x "$omp_dest"
-      echo ">> installed omp to $omp_dest"
-      return 0
+
+  # Resolve an omp release tag: explicit env > latest release > main.
+  local tag
+  if [ -n "${ROCINANTE_VERSION:-}" ]; then
+    tag="${ROCINANTE_VERSION#v}"
+  else
+    local api="https://api.github.com/repos/can1357/oh-my-pi/releases/latest"
+    if command -v curl >/dev/null; then
+      tag=$(curl -fsSL "$api" 2>/dev/null | grep '"tag_name"' | head -1 | sed -E 's/.*"v?([^"]+)".*/\1/')
+    else
+      tag=$(wget -qO- "$api" 2>/dev/null | grep '"tag_name"' | head -1 | sed -E 's/.*"v?([^"]+)".*/\1/')
     fi
   fi
-  echo "warning: omp install failed; sessions will return spawn_failed until"
-  echo "         the user installs omp and points --omp-bin at it"
-  return 1
+  if [ -z "$tag" ]; then
+    echo "warning: could not determine omp release tag; skipping omp install"
+    return 1
+  fi
+
+  # Pick the asset name. On linux we prefer glibc; fall back to
+  # musl if glibc is unavailable on the host (musl-based distros).
+  local ext=""
+  case "$GOOS" in
+    linux) base="omp-linux-${GOARCH}" ;;
+    darwin) base="omp-darwin-${GOARCH}" ;;
+    windows) base="omp-windows-${GOARCH}.exe" ;;
+    *) echo "warning: no omp asset for $GOOS"; return 1 ;;
+  esac
+  local omp_url="https://github.com/can1357/oh-my-pi/releases/download/v${tag}/${base}"
+  local tmp_dest="$SHARE_DIR/bin/.omp.download"
+  echo ">> fetching $base from can1357/oh-my-pi@$tag"
+  if ! curl -fsSL -o "$tmp_dest" "$omp_url"; then
+    rm -f "$tmp_dest"
+    echo "warning: omp download failed; install manually or set ROCINANTE_SKIP_OMP=1"
+    return 1
+  fi
+  if [ ! -s "$tmp_dest" ]; then
+    rm -f "$tmp_dest"
+    echo "warning: omp download was empty; the upstream may have changed asset names"
+    return 1
+  fi
+  local omp_dest="$SHARE_DIR/bin/omp"
+  mv "$tmp_dest" "$omp_dest"
+  chmod +x "$omp_dest"
+  echo ">> installed omp to $omp_dest"
+  return 0
 }
 install_omp || true
 
@@ -189,11 +219,8 @@ install_service() {
   local unit_file="$unit_dir/roc-harness-api.service"
   mkdir -p "$unit_dir" "$env_dir"
 
-  # Always write the unit file. The EnvironmentFile= directive
-  # only references the passphrase file and is conditional —
-  # when the file is missing we leave the unit stopped and
-  # instruct the user to re-run with a TTY (or to create the
-  # passphrase file manually).
+  # Write the unit file first. The EnvironmentFile= directive is
+  # inline so systemd picks up the passphrase at start time.
   cat > "$unit_file" <<UNIT
 [Unit]
 Description=roc-harness api
@@ -203,6 +230,7 @@ After=network.target
 Type=simple
 WorkingDirectory=$SHARE_DIR
 ExecStart=$SHARE_DIR/bin/api --port 30179 --share-dir $SHARE_DIR --passphrase-env ROCINANTE_PASSPHRASE
+EnvironmentFile=$env_file
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:/var/log/roc-harness-api.log
