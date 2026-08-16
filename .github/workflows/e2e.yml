@@ -47,14 +47,16 @@ jobs:
       - name: Init api with passphrase
         run: |
           mkdir -p /tmp/rh-share
-          echo "e2e-passphrase" | ROCINANTE_SHARE_DIR=/tmp/rh-share ./bin/api init
+          ROCINANTE_SHARE_DIR=/tmp/rh-share \
+            ROCINANTE_PASSPHRASE=e2e-passphrase \
+            ./bin/api --passphrase-env ROCINANTE_PASSPHRASE init
 
       - name: Start api
         run: |
           ROCINANTE_SHARE_DIR=/tmp/rh-share \
             ROCINANTE_PASSPHRASE=e2e-passphrase \
             ROCINANTE_BIND=127.0.0.1 \
-            nohup ./bin/api --port 30179 > /tmp/api.log 2>&1 &
+            nohup ./bin/api --port 30179 --passphrase-env ROCINANTE_PASSPHRASE > /tmp/api.log 2>&1 &
 
       - name: Start web
         working-directory: apps/web
