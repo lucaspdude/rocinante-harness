@@ -59,21 +59,16 @@ jobs:
         working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
-          cache: pnpm
-      - uses: pnpm/action-setup@v4
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Build web standalone
-        run: |
-          pnpm build
-          # The Next.js standalone build emits the runnable tree at
-          # `apps/web/.next/standalone`. The conventional layout is:
-          #   apps/web/.next/standalone/apps/web/server.js
-          # but some standalone builds flatten, so we handle both
-          # in the launcher.
+        run: pnpm build
       - name: Tar web
         run: |
           cd apps/web/.next/standalone
