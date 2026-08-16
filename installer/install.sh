@@ -151,8 +151,13 @@ if [ "$GOOS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     echo "       install node first (apt install nodejs, brew install node, etc.)" >&2
     exit 1
   fi
-  echo ">> node binary: $NODE_BIN"
-
+  if [ ! -f "$ENV_FILE" ]; then
+    {
+      echo "ROCINANTE_PASSPHRASE=${ROCINANTE_PASSPHRASE:-}"
+      echo "OMP_BIN=$SHARE_DIR/bin/omp"
+      echo "PORT=30178"
+    } > "$ENV_FILE"
+  fi
   # No ProtectHome: the install path defaults to $HOME/.local/share,
   # which lives under /root when run as root and systemd's
   # ProtectHome=yes would refuse to exec /root/.local.
