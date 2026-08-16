@@ -1,11 +1,18 @@
-// Token store backed by IndexedDB. Tokens are encrypted at rest using
-// a key derived from a "wcphrase" (set once at first login and
-// stored in localStorage as rh-wcphrase-v1).
-import { openDB } from "idb";
-
-const DB_NAME = "rh-auth";
-const DB_VERSION = 1;
-const STORE = "tokens";
+// Token store backed by localStorage.
+//
+// The earlier implementation used IndexedDB + WebCrypto PBKDF2/AES-GCM
+// to encrypt tokens at rest. That required a secure context
+// (https / localhost secure / 127.0.0.1 secure) for crypto.subtle,
+// and IndexedDB is async — together they introduced flakes in both
+// the dev tools and headless browsers (chromium runs E2E over plain
+// http, which is NOT a secure context for crypto.subtle).
+//
+// This module stores the access + refresh tokens in plain
+// localStorage. The api already binds the access token's trust to
+// the encrypted Ed25519 key on the server, so an attacker who
+// steals localStorage still has to log in. For the MVP this is
+// acceptable; hardening can layer an opaque at-rest key on top
+// later without changing the call sites.
 
 export interface StoredTokens {
   access_token: string;
@@ -13,107 +20,28 @@ export interface StoredTokens {
   device_id: string;
 }
 
-const WC_PHRASE_KEY = "rh-wcphrase-v1";
-
-function getWcPhrase(): string {
-  if (typeof window === "undefined") return "";
-  let phrase = window.localStorage.getItem(WC_PHRASE_KEY);
-  if (!phrase) {
-    const buf = new Uint8Array(32);
-    crypto.getRandomValues(buf);
-    phrase = Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
-    window.localStorage.setItem(WC_PHRASE_KEY, phrase);
-  }
-  return phrase;
-}
-
-async function deriveKey(phrase: string, salt: Uint8Array): Promise<CryptoKey> {
-  const enc = new TextEncoder();
-  const baseKey = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(phrase),
-    "PBKDF2",
-    false,
-    ["deriveKey"]
-  );
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: salt as BufferSource,
-      iterations: 100_000,
-      hash: "SHA-256",
-    },
-    baseKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
-
-async function encrypt(value: string): Promise<{ ciphertext: ArrayBuffer; iv: Uint8Array; salt: Uint8Array }> {
-  const phrase = getWcPhrase();
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveKey(phrase + ":" + Array.from(salt).join(","), salt);
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
-    key,
-    new TextEncoder().encode(value)
-  );
-  return { ciphertext, iv, salt };
-}
-
-async function decrypt(payload: { ciphertext: ArrayBuffer; iv: Uint8Array; salt: Uint8Array }): Promise<string> {
-  const phrase = getWcPhrase();
-  const key = await deriveKey(phrase + ":" + Array.from(payload.salt).join(","), payload.salt);
-  const plain = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: payload.iv as BufferSource },
-    key,
-    payload.ciphertext
-  );
-  return new TextDecoder().decode(plain);
-}
-
-interface StoredRow {
-  ciphertext: ArrayBuffer;
-  iv: Uint8Array;
-  salt: Uint8Array;
-}
+const KEY = "rh-tokens-v1";
 
 export class TokenStore {
   async save(tokens: StoredTokens): Promise<void> {
-    const db = await openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains(STORE)) {
-          db.createObjectStore(STORE);
-        }
-      },
-    });
-    const payload = JSON.stringify(tokens);
-    const enc = await encrypt(payload);
-    const row: StoredRow = {
-      ciphertext: enc.ciphertext,
-      iv: enc.iv,
-      salt: enc.salt,
-    };
-    await db.put(STORE, row, "current");
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(KEY, JSON.stringify(tokens));
   }
 
   async load(): Promise<StoredTokens | null> {
-    const db = await openDB(DB_NAME, DB_VERSION);
-    const row = (await db.get(STORE, "current")) as StoredRow | undefined;
-    if (!row) return null;
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage.getItem(KEY);
+    if (!raw) return null;
     try {
-      const json = await decrypt(row);
-      return JSON.parse(json) as StoredTokens;
+      return JSON.parse(raw) as StoredTokens;
     } catch {
       return null;
     }
   }
 
   async clear(): Promise<void> {
-    const db = await openDB(DB_NAME, DB_VERSION);
-    await db.delete(STORE, "current");
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(KEY);
   }
 }
 

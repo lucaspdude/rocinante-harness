@@ -1,5 +1,6 @@
 {
   "app.name": "rocinante-harness",
+  "app.tagline": "Self-hosted AI agent harness.",
   "login.title": "Sign in",
   "login.subtitle": "Enter your passphrase to continue.",
   "login.passphrase": "Passphrase",
@@ -12,6 +13,10 @@
   "agent.placeholder": "Type a prompt...",
   "agent.send": "Send",
   "agent.stop": "Stop",
+  "agent.newSession": "New session",
+  "agent.empty": "Send a prompt to start.",
+  "agent.connecting": "Connecting...",
+  "agent.disconnected": "Disconnected.",
   "settings.title": "Settings",
   "settings.general": "General",
   "settings.locale": "Language",
@@ -25,6 +30,7 @@
   "settings.devicesEmpty": "No devices yet.",
   "settings.current": "current",
   "settings.revoke": "Revoke",
+  "settings.about": "About",
   "onboarding.title": "Welcome",
   "onboarding.subtitle": "Choose a passphrase to unlock the api.",
   "onboarding.passphrase": "Passphrase",
@@ -32,5 +38,16 @@
   "onboarding.locale": "Language",
   "onboarding.submit": "Finish setup",
   "onboarding.complete": "Setup complete.",
-  "onboarding.goLogin": "Continue to sign in"
+  "onboarding.goLogin": "Continue to sign in",
+  "sidebar.title": "Sessions",
+  "sidebar.empty": "No sessions yet.",
+  "sidebar.newSession": "New session",
+  "sidebar.loading": "Loading sessions...",
+  "sidebar.delete": "Delete",
+  "common.cancel": "Cancel",
+  "common.confirm": "Confirm",
+  "common.close": "Close",
+  "common.delete": "Delete",
+  "common.save": "Save",
+  "common.loading": "Loading..."
 }

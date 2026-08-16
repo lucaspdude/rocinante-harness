@@ -4,19 +4,39 @@ updates:
     directory: "/apps/api"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "deps"
+      - "go"
   - package-ecosystem: "gomod"
     directory: "/apps/harness"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "deps"
+      - "go"
   - package-ecosystem: "npm"
     directory: "/packages/contract"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "deps"
+      - "ts"
   - package-ecosystem: "npm"
     directory: "/apps/web"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "deps"
+      - "ts"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "deps"
+      - "ci"

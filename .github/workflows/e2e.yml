@@ -1,0 +1,90 @@
+name: E2E
+
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      ROCINANTE_SHARE_DIR: /tmp/rh-share
+      ROCINANTE_PASSPHRASE: e2e-passphrase
+      ROCINANTE_BIND: 127.0.0.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install Go deps (api)
+        working-directory: apps/api
+        run: go mod download
+
+      - name: Install (pnpm)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build api
+        working-directory: apps/api
+        run: go build -o ../../bin/api ./cmd/api
+
+      - name: Build web
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_RH_API_URL: http://127.0.0.1:30179
+        run: |
+          pnpm build
+          # Next 16 standalone omits .next/static/ by default. The minimal
+          # server.js runs from .next/standalone/apps/web and looks up
+          # chunks in apps/web/.next/static. Copy the missing dir into
+          # both locations so the running server can find the assets.
+          mkdir -p .next/standalone/.next
+          mkdir -p .next/standalone/apps/web/.next
+          cp -r .next/static/. .next/standalone/.next/static/
+          cp -r .next/static/. .next/standalone/apps/web/.next/static/
+
+      - name: Init api with passphrase
+        run: ./bin/api --passphrase-env ROCINANTE_PASSPHRASE init
+
+      - name: Start api
+        run: |
+          nohup ./bin/api --port 30179 --passphrase-env ROCINANTE_PASSPHRASE > /tmp/api.log 2>&1 &
+
+      - name: Start web
+        working-directory: apps/web
+        env:
+          PORT: "30178"
+        run: |
+          nohup node .next/standalone/apps/web/server.js > /tmp/web.log 2>&1 &
+
+      - name: Wait for api + web
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:30179/api/v1/healthz > /dev/null && \
+              curl -sfI http://127.0.0.1:30178/ > /dev/null && break
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:30179/api/v1/healthz
+          echo
+
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run E2E
+        working-directory: apps/web
+        env:
+          RH_E2E_PASSPHRASE: e2e-passphrase
+        run: pnpm exec playwright test --config e2e/playwright.config.ts --reporter=line
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: apps/web/e2e/screenshots/
