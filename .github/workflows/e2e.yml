@@ -1,13 +1,6 @@
 name: E2E
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "apps/web/**"
-      - "apps/api/**"
-      - ".github/workflows/e2e.yml"
-      - "apps/web/e2e/**"
   workflow_dispatch:
 
 jobs:
