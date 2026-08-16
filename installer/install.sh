@@ -115,10 +115,6 @@ if ! command -v omp >/dev/null 2>&1 && [ ! -x "$SHARE_DIR/bin/omp" ]; then
 fi
 
 # --- api init --------------------------------------------------------
-# `api init` writes the passphrase-wrapped Ed25519 key under
-# $SHARE_DIR/.ed25519. The api reads the passphrase from the env
-# var ROCINANTE_PASSPHRASE (the installer pre-seeds
-# /etc/roc-harness/env). Skip if the key already exists.
 if [ -f "$SHARE_DIR/.ed25519" ]; then
   echo ">> .ed25519 already exists at $SHARE_DIR/.ed25519; skipping init"
 else
@@ -127,18 +123,9 @@ else
 fi
 
 # --- systemd units ---------------------------------------------------
-# Linux only. The api binds to 127.0.0.1 (loopback only — the web
-# reaches it via the Next.js rewrite, no external exposure). The
-# web binds to 0.0.0.0 so it's reachable on whatever network the
-# host has. Both pick up their config from /etc/roc-harness/env.
-#
-# No ProtectHome: the install path defaults to $HOME/.local/share,
-# which lives under /root when run as root and systemd's
-# ProtectHome=yes would refuse to exec /root/.local.
 if [ "$GOOS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
   ENV_FILE="/etc/roc-harness/env"
   mkdir -p /etc/roc-harness
-  # Seed /etc/roc-harness/env (don't overwrite an existing passphrase).
   if [ ! -f "$ENV_FILE" ]; then
     {
       echo "ROCINANTE_PASSPHRASE=${ROCINANTE_PASSPHRASE:-}"
@@ -149,6 +136,26 @@ if [ "$GOOS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     echo "ROCINANTE_PASSPHRASE=$ROCINANTE_PASSPHRASE" >> "$ENV_FILE"
   fi
 
+  # Find the node binary. /usr/bin/node is the common location on
+  # Debian/Ubuntu; nvm puts it under ~/.nvm/versions/node/v*/bin/node.
+  # Falling back to PATH would not help systemd (it ignores the
+  # interactive-shell PATH). We resolve it at install time.
+  NODE_BIN="$(command -v node)"
+  if [ -z "$NODE_BIN" ]; then
+    for candidate in /usr/bin/node /usr/local/bin/node /opt/node/bin/node; do
+      [ -x "$candidate" ] && NODE_BIN="$candidate" && break
+    done
+  fi
+  if [ -z "$NODE_BIN" ]; then
+    echo "fatal: could not find a node binary in PATH or /usr/bin/node" >&2
+    echo "       install node first (apt install nodejs, brew install node, etc.)" >&2
+    exit 1
+  fi
+  echo ">> node binary: $NODE_BIN"
+
+  # No ProtectHome: the install path defaults to $HOME/.local/share,
+  # which lives under /root when run as root and systemd's
+  # ProtectHome=yes would refuse to exec /root/.local.
   cat > /etc/systemd/system/roc-harness-api.service <<UNIT
 [Unit]
 Description=roc-harness api
@@ -175,7 +182,7 @@ After=network.target roc-harness-api.service
 [Service]
 Type=simple
 WorkingDirectory=$SHARE_DIR/web/apps/web
-ExecStart=/usr/bin/node $SHARE_DIR/web/apps/web/server.js
+ExecStart=$NODE_BIN $SHARE_DIR/web/apps/web/server.js
 EnvironmentFile=$ENV_FILE
 Restart=on-failure
 RestartSec=5
