@@ -13,6 +13,10 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    env:
+      ROCINANTE_SHARE_DIR: /tmp/rh-share
+      ROCINANTE_PASSPHRASE: e2e-passphrase
+      ROCINANTE_BIND: 127.0.0.1
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -38,30 +42,23 @@ jobs:
 
       - name: Build web
         working-directory: apps/web
+        env:
+          NEXT_PUBLIC_RH_API_URL: http://127.0.0.1:30179
         run: |
           pnpm build
           # Next 16 standalone omits .next/static/ by default. The minimal
           # server.js runs from .next/standalone/apps/web and looks up
           # chunks in apps/web/.next/static. Copy the missing dir into
-          # BOTH locations: the standalone-root copy (for the build
-          # trace), and the apps/web/.next/ copy (which the server
-          # actually reads).
+          # both locations so the running server can find the assets.
           mkdir -p .next/standalone/.next
           mkdir -p .next/standalone/apps/web/.next
           cp -r .next/static/. .next/standalone/.next/static/
           cp -r .next/static/. .next/standalone/apps/web/.next/static/
 
       - name: Init api with passphrase
-        env:
-          ROCINANTE_SHARE_DIR: /tmp/rh-share
-          ROCINANTE_PASSPHRASE: e2e-passphrase
         run: ./bin/api --passphrase-env ROCINANTE_PASSPHRASE init
 
       - name: Start api
-        env:
-          ROCINANTE_SHARE_DIR: /tmp/rh-share
-          ROCINANTE_PASSPHRASE: e2e-passphrase
-          ROCINANTE_BIND: 127.0.0.1
         run: |
           nohup ./bin/api --port 30179 --passphrase-env ROCINANTE_PASSPHRASE > /tmp/api.log 2>&1 &
 
