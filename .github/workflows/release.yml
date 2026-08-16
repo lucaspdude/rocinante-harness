@@ -13,6 +13,9 @@ on:
 jobs:
   api:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -20,16 +23,16 @@ jobs:
           go-version: "1.22"
       - name: Build api
         run: |
-          mkdir -p dist
+          mkdir -p ../../dist
           for platform in linux:amd64 linux:arm64 darwin:amd64 darwin:arm64 windows:amd64; do
             os=$(echo "$platform" | cut -d: -f1)
             arch=$(echo "$platform" | cut -d: -f2)
             ext=""
             [ "$os" = "windows" ] && ext=".exe"
-            out="dist/api-${os}-${arch}${ext}"
+            out="../../dist/api-${os}-${arch}${ext}"
             GOOS=$os GOARCH=$arch \
               go build -trimpath -ldflags="-s -w" \
-                -o "$out" ./apps/api/cmd/api
+                -o "$out" ./cmd/api
           done
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -41,9 +44,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
       - name: Build harness
         run: bash scripts/build-harness.sh
       - name: Upload artifacts
@@ -67,10 +67,9 @@ jobs:
           name: harness-binaries
           path: apps/harness/bin/
       - name: Compute checksums
+        working-directory: dist
         run: |
-          cd dist
           sha256sum api-* > SHA256SUMS
-          mv SHA256SUMS ../dist/
       - name: Resolve tag
         id: tag
         run: |
