@@ -185,9 +185,40 @@ install_service() {
 
   local unit_dir="/etc/systemd/system"
   local env_dir="/etc/roc-harness"
+  local env_file="$env_dir/passphrase"
+  local unit_file="$unit_dir/roc-harness-api.service"
   mkdir -p "$unit_dir" "$env_dir"
 
-  local env_file="$env_dir/passphrase"
+  # Always write the unit file. The EnvironmentFile= directive
+  # only references the passphrase file and is conditional —
+  # when the file is missing we leave the unit stopped and
+  # instruct the user to re-run with a TTY (or to create the
+  # passphrase file manually).
+  cat > "$unit_file" <<UNIT
+[Unit]
+Description=roc-harness api
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$SHARE_DIR
+ExecStart=$SHARE_DIR/bin/api --port 30179 --share-dir $SHARE_DIR --passphrase-env ROCINANTE_PASSPHRASE
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/roc-harness-api.log
+StandardError=append:/var/log/roc-harness-api.log
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  # Write the passphrase file. The interactive branch uses read
+  # with -t and a hidden prompt. The non-interactive branch
+  # requires the user to have already set the passphrase file
+  # outside this script (e.g. via cloud-init, an ops tool, or a
+  # previous run). When the file is missing, we install the
+  # unit but do NOT enable or start the service — let the user
+  # create the file and run `systemctl start roc-harness-api`.
   if [ ! -f "$env_file" ]; then
     if [ -t 0 ]; then
       printf 'ROCINANTE_PASSPHRASE=' > "$env_file.tmp"
@@ -200,30 +231,16 @@ install_service() {
       chmod 0600 "$env_file"
       echo ">> wrote $env_file"
     else
-      echo "warning: non-interactive shell; skipping passphrase write."
-      echo "         create $env_file with ROCINANTE_PASSPHRASE=... before"
-      echo "         starting the service."
+      echo "warning: non-interactive shell; no passphrase file at $env_file"
+      echo "         create it with:"
+      echo "           printf 'ROCINANTE_PASSPHRASE=your-passphrase' > $env_file"
+      echo "           chmod 0600 $env_file"
+      echo "         then re-run: systemctl start roc-harness-api"
+      systemctl daemon-reload
+      echo ">> wrote $unit_file (service not enabled yet)"
+      return 0
     fi
   fi
-
-  cat > "$unit_dir/roc-harness-api.service" <<UNIT
-[Unit]
-Description=roc-harness api
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=$SHARE_DIR
-ExecStart=$SHARE_DIR/bin/api --port 30179 --share-dir $SHARE_DIR --passphrase-env ROCINANTE_PASSPHRASE
-EnvironmentFile=$env_file
-Restart=on-failure
-RestartSec=5
-StandardOutput=append:/var/log/roc-harness-api.log
-StandardError=append:/var/log/roc-harness-api.log
-
-[Install]
-WantedBy=multi-user.target
-UNIT
 
   systemctl daemon-reload
   systemctl enable --now roc-harness-api
