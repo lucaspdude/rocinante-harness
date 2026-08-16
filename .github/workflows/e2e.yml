@@ -12,11 +12,7 @@ on:
 
 jobs:
   e2e:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -51,23 +47,25 @@ jobs:
           cp -r .next/static/. .next/standalone/.next/static/
 
       - name: Init api with passphrase
-        run: |
-          mkdir -p /tmp/rh-share
-          ROCINANTE_SHARE_DIR=/tmp/rh-share \
-            ROCINANTE_PASSPHRASE=e2e-passphrase \
-            ./bin/api --passphrase-env ROCINANTE_PASSPHRASE init
+        env:
+          ROCINANTE_SHARE_DIR: /tmp/rh-share
+          ROCINANTE_PASSPHRASE: e2e-passphrase
+        run: ./bin/api --passphrase-env ROCINANTE_PASSPHRASE init
 
       - name: Start api
+        env:
+          ROCINANTE_SHARE_DIR: /tmp/rh-share
+          ROCINANTE_PASSPHRASE: e2e-passphrase
+          ROCINANTE_BIND: 127.0.0.1
         run: |
-          ROCINANTE_SHARE_DIR=/tmp/rh-share \
-            ROCINANTE_PASSPHRASE=e2e-passphrase \
-            ROCINANTE_BIND=127.0.0.1 \
-            nohup ./bin/api --port 30179 --passphrase-env ROCINANTE_PASSPHRASE > /tmp/api.log 2>&1 &
+          nohup ./bin/api --port 30179 --passphrase-env ROCINANTE_PASSPHRASE > /tmp/api.log 2>&1 &
 
       - name: Start web
         working-directory: apps/web
+        env:
+          PORT: "30178"
         run: |
-          PORT=30178 nohup node .next/standalone/apps/web/server.js > /tmp/web.log 2>&1 &
+          nohup node .next/standalone/apps/web/server.js > /tmp/web.log 2>&1 &
 
       - name: Wait for api + web
         run: |
@@ -78,8 +76,6 @@ jobs:
           done
           curl -sf http://127.0.0.1:30179/api/v1/healthz
           echo
-          echo "---web log---"
-          cat /tmp/web.log
 
       - name: Install Playwright browsers
         working-directory: apps/web
@@ -87,11 +83,11 @@ jobs:
 
       - name: Run E2E
         working-directory: apps/web
-        run: pnpm exec playwright test --config e2e/playwright.config.ts
+        run: pnpm exec playwright test --config e2e/playwright.config.ts --reporter=line
 
       - name: Upload screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-screenshots-${{ matrix.os }}
+          name: e2e-screenshots
           path: apps/web/e2e/screenshots/
