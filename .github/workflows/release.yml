@@ -70,11 +70,15 @@ jobs:
       - name: Build web standalone
         run: |
           pnpm build
-          # Next 16 standalone output omits static assets by default.
-          # Copy the public/ and .next/static/ directories into the
-          # standalone output so the minimal server can serve them.
-          cp -r apps/web/public apps/web/.next/standalone/apps/web/public 2>/dev/null || true
-          cp -r apps/web/.next/static apps/web/.next/standalone/.next/static 2>/dev/null || true
+          # Next 16 standalone output omits public/ and .next/static/
+          # by default. The working-directory is apps/web, so paths are
+          # relative to it. Copy the missing dirs into the standalone
+          # output so the minimal server can serve them.
+          cp -r public .next/standalone/apps/web/public 2>/dev/null || true
+          cp -r .next/static .next/standalone/.next/static 2>/dev/null || true
+          # Verify the copy actually landed where we expect it.
+          echo "---standalone .next/static---"
+          find .next/standalone/.next/static -maxdepth 2 -type d
       - name: Tar web
         run: |
           mkdir -p ../../dist

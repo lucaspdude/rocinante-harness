@@ -47,6 +47,32 @@ allowed.
 **Never edit a file directly on `main`.** No matter how small the
 change, it goes through a branch + PR.
 
+## Git identity (do not commit as `Lucas <lucas@example.com>`)
+
+This repo's `.git/config` **must not** carry a local `[user]`
+override. The previous override (`name = Lucas`,
+`email = lucas@example.com`) caused every commit to author as
+the example address and forced GitHub to add a
+`Co-authored-by: Lucas <lucas@example.com>` trailer. The global
+config at `~/.gitconfig` is the canonical identity:
+
+- `user.name = Lucas Pacheco`
+- `user.email = lucaspdude@gmail.com`
+
+If `git config --local --get user.email` ever returns
+`lucas@example.com` (or any non-canonical value), fix it before
+the next commit:
+
+```bash
+git config --local --unset user.name
+git config --local --unset user.email
+git config --get user.email   # must print lucaspdude@gmail.com
+```
+
+Do **not** add a per-repo `[user]` override when committing. The
+global config is correct and per-repo overrides here are
+considered a regression.
+
 ## Path-prefix invariant
 
 Every public endpoint the front consumes is `/api/v1/...`. The
