@@ -2,25 +2,47 @@
 # roc-harness installer —
 #   Downloads the latest API + harness binaries from the latest
 #   release of lucaspdude/rocinante-harness into
-#   ${ROCHASSEN_SHARE_DIR}/bin, then runs `api init` to create the
+#   ${ROCINANTE_SHARE_DIR}/bin, then runs `api init` to create the
 #   passphrase-wrapped key.
 #
-# Override the version via ROCHASSEN_VERSION (e.g. v0.1.1) to pin
-# to a specific release. Set ROCHASSEN_SKIP_INIT=1 to skip init.
-# Set ROCHASSEN_REPO=owner/name to install from a fork.
+# Override the version via ROCINANTE_VERSION (e.g. v0.1.1) to pin
+# to a specific release. Set ROCINANTE_SKIP_INIT=1 to skip init.
+# Set ROCINANTE_REPO=owner/name to install from a fork.
+#
+# All variables honour both ROCINANTE_* (preferred) and ROCHASSEN_*
+# (legacy alias from the early alpha) — the first one set wins.
 set -euo pipefail
 
-REPO="${ROCHASSEN_REPO:-lucaspdude/rocinante-harness}"
+# Pick the first non-empty value among the supplied names.
+#   pick REPO ROCINANTE_REPO ROCHASSEN_REPO
+pick() {
+  local var name
+  for var in "$@"; do
+    name="${var#*=}"
+    if [ -n "${!name:-}" ]; then
+      printf '%s\n' "${!name}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+pick REPO "${ROCINANTE_REPO:-}" "${ROCHASSEN_REPO:-}" 2>/dev/null \
+  || REPO="lucaspdude/rocinante-harness"
 
 # Resolve the version: explicit env > latest release tag > main.
 resolve_version() {
-  if [ -n "${ROCHASSEN_VERSION:-}" ]; then
-    echo "$ROCHASSEN_VERSION"
+  if [ -n "${ROCINANTE_VERSION:-}${ROCHASSEN_VERSION:-}" ]; then
+    pick VERSION ROCINANTE_VERSION ROCHASSEN_VERSION
     return 0
   fi
-  local tag
-  tag=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
-    | grep '"tag_name"' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+  local tag api
+  api="https://api.github.com/repos/${REPO}/releases/latest"
+  if command -v curl >/dev/null; then
+    tag=$(curl -fsSL "$api" 2>/dev/null | grep '"tag_name"' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+  else
+    tag=$(wget -qO- "$api" 2>/dev/null | grep '"tag_name"' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+  fi
   if [ -n "$tag" ]; then
     echo "$tag"
     return 0
@@ -38,15 +60,16 @@ case "$ARCH" in
 esac
 GOOS=$(uname | tr '[:upper:]' '[:lower:]')
 
-SHARE_DIR="${ROCHASSEN_SHARE_DIR:-$HOME/.local/share/rocinante-harness}"
+# SHARE_DIR accepts both ROCINANTE_SHARE_DIR and ROCHASSEN_SHARE_DIR.
+SHARE_DIR="${ROCINANTE_SHARE_DIR:-${ROCHASSEN_SHARE_DIR:-$HOME/.local/share/rocinante-harness}}"
 mkdir -p "$SHARE_DIR/bin"
 
 # For real releases, download from the release assets. For
-# ROCHASSEN_VERSION=main, fetch the workflow build artifacts via
+# ROCINANTE_VERSION=main, fetch the workflow build artifacts via
 # the latest CI run on main.
 if [ "$VERSION" = "main" ]; then
-  echo ">> ROCHASSEN_VERSION=main — fetching the latest CI build"
-  RUN_ID=$(curl -fsSL "https://api.github.com/repos/${REPO}/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1" \
+  echo ">> ROCINANTE_VERSION=main — fetching the latest CI build"
+  RUN_ID=$(curl -fsSL "https://api.github.com/repos/${REPO}/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1" 2>/dev/null \
     | grep '"id"' | head -1 | sed -E 's/.*"([0-9]+)".*/\1/')
   if [ -z "$RUN_ID" ]; then
     echo "no successful CI run on main; aborting" >&2
@@ -84,8 +107,9 @@ ln -sf "$SHARE_DIR/bin/$HARNESS_NAME" "$SHARE_DIR/bin/roc-harness"
 echo "installed to $SHARE_DIR/bin"
 ls -la "$SHARE_DIR/bin"
 
-if [ "${ROCHASSEN_SKIP_INIT:-0}" = "1" ]; then
-  echo "ROCHASSEN_SKIP_INIT=1; skipping init"
+# SKIP_INIT honours both ROCINANTE_SKIP_INIT and ROCHASSEN_SKIP_INIT.
+if pick SKIP_INIT ROCINANTE_SKIP_INIT ROCHASSEN_SKIP_INIT >/dev/null 2>&1 && [ "$SKIP_INIT" = "1" ]; then
+  echo "skip-init=1; skipping init"
   exit 0
 fi
 
