@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # roc-harness installer.
 #
-# One-shot setup: downloads the api, harness, and web bundle from the
-# latest release of lucaspdude/rocinante-harness, writes + enables
-# systemd units, and starts the api + web as sibling processes.
+# One-shot setup: downloads the api, harness, and web bundle from
+# the latest release of lucaspdude/rocinante-harness, writes +
+# enables systemd units, and starts the api + web as sibling
+# processes.
 #
 # The web talks to the api via a Next.js rewrite
 # (/api/v1/* → 127.0.0.1:30179/api/v1/*, see apps/web/next.config.ts).
-# The browser always talks to the web on :30178 — same origin, no CORS,
-# no public-host / bind-address env var to remember.
+# The browser always talks to the web on :30178 — same origin, no
+# CORS, no public-host / bind-address env var to remember.
 #
 # Usage:
 #   curl -fsSL .../installer/install.sh | bash
@@ -18,6 +19,8 @@
 #   ROCINANTE_REPO=owner/name   install from a fork
 #   ROCINANTE_SHARE_DIR=/opt/rh override the install root
 #                          (default: $HOME/.local/share/rocinante-harness)
+#   ROCINANTE_PASSPHRASE=...   non-interactive init (otherwise the
+#                              installer prompts via /dev/tty)
 #
 # What gets written:
 #   $SHARE_DIR/bin/{api,roc-harness,omp}    binaries
@@ -107,34 +110,27 @@ if ! command -v omp >/dev/null 2>&1 && [ ! -x "$SHARE_DIR/bin/omp" ]; then
     echo ">> installed omp to $SHARE_DIR/bin/omp"
   else
     rm -f "$SHARE_DIR/bin/omp.tmp"
-    echo "warning: omp download failed; install manually or skip with ROCINANTE_SKIP_OMP=1"
+    echo "warning: omp download failed; install manually"
   fi
 fi
 
 # --- api init --------------------------------------------------------
 # `api init` writes the passphrase-wrapped Ed25519 key under
-# $SHARE_DIR/.ed25519. We pass the passphrase non-interactively if
-# ROCINANTE_PASSPHRASE is set, otherwise we prompt. Skip if the key
-# already exists.
+# $SHARE_DIR/.ed25519. The api reads the passphrase from the env var
+# ROCINANTE_PASSPHRASE (the installer pre-seeds /etc/roc-harness/env).
+# Skip if the key already exists.
 if [ -f "$SHARE_DIR/.ed25519" ]; then
   echo ">> .ed25519 already exists at $SHARE_DIR/.ed25519; skipping init"
-elif [ -t 0 ] && [ -z "${ROCINANTE_PASSPHRASE:-}" ]; then
+else
   echo ">> running api init"
   "$SHARE_DIR/bin/api" --share-dir "$SHARE_DIR" init
-elif [ -n "${ROCINANTE_PASSPHRASE:-}" ]; then
-  echo ">> running api init (non-interactive)"
-  ROCINANTE_PASSPHRASE="$ROCINANTE_PASSPHRASE" \
-    "$SHARE_DIR/bin/api" --share-dir "$SHARE_DIR" --passphrase-env ROCINANTE_PASSPHRASE init
-else
-  echo "fatal: api needs a passphrase. Re-run interactively or set ROCINANTE_PASSPHRASE." >&2
-  exit 1
 fi
 
 # --- systemd units ---------------------------------------------------
 # Linux only. The api binds to 127.0.0.1 (loopback only — the web
-# reaches it via the Next.js rewrite, no external exposure). The web
-# binds to 0.0.0.0 so it's reachable on whatever network the host
-# has. Both pick up their config from /etc/roc-harness/env.
+# reaches it via the Next.js rewrite, no external exposure). The
+# web binds to 0.0.0.0 so it's reachable on whatever network the
+# host has. Both pick up their config from /etc/roc-harness/env.
 if [ "$GOOS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
   ENV_FILE="/etc/roc-harness/env"
   mkdir -p /etc/roc-harness
@@ -143,7 +139,6 @@ if [ "$GOOS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     {
       echo "ROCINANTE_PASSPHRASE=${ROCINANTE_PASSPHRASE:-}"
       echo "OMP_BIN=$SHARE_DIR/bin/omp"
-      echo "ROCINANTE_BIND=127.0.0.1"
     } > "$ENV_FILE"
     chmod 0600 "$ENV_FILE"
   elif ! grep -q '^ROCINANTE_PASSPHRASE=' "$ENV_FILE" && [ -n "${ROCINANTE_PASSPHRASE:-}" ]; then
@@ -158,7 +153,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$SHARE_DIR
-ExecStart=$SHARE_DIR/bin/api --bind 127.0.0.1 --port 30179 --share-dir $SHARE_DIR --passphrase-env ROCINANTE_PASSPHRASE --omp-bin \$OMP_BIN
+ExecStart=$SHARE_DIR/bin/api --share-dir $SHARE_DIR --port 30179
 EnvironmentFile=$ENV_FILE
 Restart=on-failure
 RestartSec=5
@@ -197,7 +192,7 @@ WUNIT
 else
   echo ">> service install skipped (not linux or no systemctl)"
   echo ">> to start manually:"
-  echo "     $SHARE_DIR/bin/api --bind 127.0.0.1 --port 30179 --share-dir $SHARE_DIR --passphrase-env ROCINANTE_PASSPHRASE --omp-bin $SHARE_DIR/bin/omp &"
+  echo "     $SHARE_DIR/bin/api --share-dir $SHARE_DIR --port 30179 &"
   echo "     cd $SHARE_DIR/web/apps/web && PORT=30178 node server.js &"
 fi
 
