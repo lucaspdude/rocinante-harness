@@ -34,10 +34,19 @@ download() {
   chmod +x "$out"
 }
 
-download "api-${GOOS}-${GOARCH}"
-download "roc-harness-${GOOS}-${GOARCH}"
+API_NAME="api-${GOOS}-${GOARCH}"
+HARNESS_NAME="roc-harness-${GOOS}-${GOARCH}"
+download "$API_NAME"
+download "$HARNESS_NAME"
+
+# Symlink the platform-suffixed binaries to the canonical names
+# (api, roc-harness) so the rest of the workflow can run them
+# without knowing the GOOS/GOARCH tuple.
+ln -sf "$SHARE_DIR/bin/$API_NAME" "$SHARE_DIR/bin/api"
+ln -sf "$SHARE_DIR/bin/$HARNESS_NAME" "$SHARE_DIR/bin/roc-harness"
 
 echo "installed to $SHARE_DIR/bin"
+ls -la "$SHARE_DIR/bin"
 
 if [ "${ROCHASSEN_SKIP_INIT:-0}" = "1" ]; then
   echo "ROCHASSEN_SKIP_INIT=1; skipping init"
