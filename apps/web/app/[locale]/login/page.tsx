@@ -6,8 +6,8 @@ import { api } from "../../../lib/api/client";
 import { tokenStore } from "../../../lib/auth/token-store";
 
 interface LoginResponse {
-  access_token: string;
-  refresh_token: string;
+  access: string;
+  refresh: string;
   device_id: string;
 }
 
@@ -32,8 +32,8 @@ export default function LoginPage() {
       );
       if (res) {
         await tokenStore.save({
-          access_token: res.access_token,
-          refresh_token: res.refresh_token,
+          access_token: res.access,
+          refresh_token: res.refresh,
           device_id: res.device_id,
         });
         window.location.href = "/";
