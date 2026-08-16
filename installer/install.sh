@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # roc-harness installer —
-#   Downloads the latest API + harness binaries from the latest
-#   release of lucaspdude/rocinante-harness into
-#   ${ROCINANTE_SHARE_DIR}/bin, runs `api init` to create the
-#   passphrase-wrapped key, optionally installs the `omp` binary
-#   if missing, and optionally installs + enables a systemd
-#   service for the api.
+#   Downloads the latest API + harness binaries + web bundle
+#   from the latest release of lucaspdude/rocinante-harness into
+#   ${ROCINANTE_SHARE_DIR}/, runs `api init` to create the
+#   passphrase-wrapped key, optionally installs the `omp` binary,
+#   and optionally installs + enables systemd units for the api
+#   and the web.
 #
 # All flags are env vars (any prefix `ROCHASSEN_*` is a legacy
 # alias for the matching `ROCINANTE_*`):
 #   ROCINANTE_VERSION=v0.1.5       pin to a specific release
 #   ROCINANTE_SKIP_INIT=1         skip the `api init` prompt
 #   ROCINANTE_SKIP_OMP=1          skip the omp install
+#   ROCINANTE_SKIP_WEB=1          skip the web bundle download
 #   ROCINANTE_INSTALL_SERVICE=1   write + enable systemd units
+#   ROCINANTE_BIND=0.0.0.0         bind address (default 127.0.0.1)
+#   ROCINANTE_PUBLIC_API_URL=...  full URL the browser hits
 #   ROCINANTE_REPO=owner/name      install from a fork
 set -euo pipefail
 
@@ -75,7 +78,7 @@ if [ -n "${ROCINANTE_SHARE_DIR:-${ROCHASSEN_SHARE_DIR:-}}" ]; then
 else
   SHARE_DIR="$HOME/.local/share/rocinante-harness"
 fi
-mkdir -p "$SHARE_DIR/bin"
+mkdir -p "$SHARE_DIR/bin" "$SHARE_DIR/web"
 
 SKIP_INIT="0"
 if pick SKIP_INIT ROCINANTE_SKIP_INIT ROCHASSEN_SKIP_INIT; then
@@ -87,23 +90,20 @@ if pick SKIP_OMP ROCINANTE_SKIP_OMP ROCHASSEN_SKIP_OMP; then
   SKIP_OMP="$SKIP_OMP"
 fi
 
+SKIP_WEB="0"
+if pick SKIP_WEB ROCINANTE_SKIP_WEB ROCHASSEN_SKIP_WEB; then
+  SKIP_WEB="$SKIP_WEB"
+fi
+
 INSTALL_SERVICE="0"
 if pick INSTALL_SERVICE ROCINANTE_INSTALL_SERVICE ROCHASSEN_INSTALL_SERVICE; then
   INSTALL_SERVICE="$INSTALL_SERVICE"
 fi
 
-if [ "$VERSION" = "main" ]; then
-  echo ">> ROCINANTE_VERSION=main — fetching the latest CI build"
-  RUN_ID=$(curl -fsSL "https://api.github.com/repos/${REPO}/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1" 2>/dev/null \
-    | grep '"id"' | head -1 | sed -E 's/.*"([0-9]+)".*/\1/')
-  if [ -z "$RUN_ID" ]; then
-    echo "no successful CI run on main; aborting" >&2
-    exit 1
-  fi
-  URL_BASE="https://github.com/${REPO}/actions/runs/${RUN_ID}"
-else
-  URL_BASE="https://github.com/${REPO}/releases/download/${VERSION}"
-fi
+BIND="${ROCINANTE_BIND:-127.0.0.1}"
+PUBLIC_API_URL="${ROCINANTE_PUBLIC_API_URL:-}"
+
+URL_BASE="https://github.com/${REPO}/releases/download/${VERSION}"
 
 download() {
   local name="$1"
@@ -129,15 +129,49 @@ ln -sf "$SHARE_DIR/bin/$HARNESS_NAME" "$SHARE_DIR/bin/roc-harness"
 echo "installed to $SHARE_DIR/bin"
 ls -la "$SHARE_DIR/bin"
 
+# --- web bundle (Next standalone) -------------------------------
+# The web bundle is a single tar.gz named `web.tar.gz`. Release
+# workflow emits it from the `next build` output (output:
+# 'standalone'). The launcher extracts the bundle into
+# $SHARE_DIR/web so the harness can find $SHARE_DIR/web/apps/web/server.js.
+install_web() {
+  if [ "$SKIP_WEB" = "1" ]; then
+    echo ">> ROCINANTE_SKIP_WEB=1; skipping web bundle"
+    return 0
+  fi
+  if [ -f "$SHARE_DIR/web/apps/web/server.js" ]; then
+    echo ">> web already installed at $SHARE_DIR/web"
+    return 0
+  fi
+  local bundle="$URL_BASE/web.tar.gz"
+  local tmp="$SHARE_DIR/.web.tar.gz.tmp"
+  echo ">> fetching web bundle"
+  if ! curl -fL --retry 3 -o "$tmp" "$bundle"; then
+    rm -f "$tmp"
+    echo "warning: web bundle download failed; the web will be missing"
+    return 1
+  fi
+  if [ ! -s "$tmp" ]; then
+    rm -f "$tmp"
+    echo "warning: web bundle empty"
+    return 1
+  fi
+  if ! tar -xzf "$tmp" -C "$SHARE_DIR/web" 2>/dev/null; then
+    rm -f "$tmp"
+    echo "warning: web bundle extract failed"
+    return 1
+  fi
+  rm -f "$tmp"
+  if [ ! -f "$SHARE_DIR/web/apps/web/server.js" ]; then
+    echo "warning: web bundle did not contain apps/web/server.js"
+    return 1
+  fi
+  echo ">> web installed to $SHARE_DIR/web"
+  return 0
+}
+install_web || true
+
 # --- omp install (optional, best-effort) ---------------------------
-# The api needs the omp binary on $PATH (or pointed at via
-# --omp-bin). If omp is missing and the user has not opted out,
-# fetch the matching asset from can1357/oh-my-pi releases
-# (the upstream omp project). Linux glibc and musl variants are
-# both available; we prefer glibc for the common case. macOS
-# darwin / Windows windows assets are also named darwin-x64 +
-# darwin-arm64 / windows-x64.exe. Failure is non-fatal — the api
-# boots fine without omp; the user can install it manually later.
 install_omp() {
   if command -v omp >/dev/null 2>&1; then
     echo ">> omp already on PATH: $(command -v omp)"
@@ -200,11 +234,9 @@ else
 fi
 
 # --- systemd service install (optional) ---------------------------
-# Writes a unit file that runs the api under systemd with the
-# passphrase pulled from /etc/roc-harness/env. The unit also
-# references $OMP_BIN (the path to the omp binary) so the service
-# does not need omp on $PATH. On Linux distros that ship systemd.
-# On macOS / Windows this is a no-op.
+# Always writes the api service. Also writes the web service when
+# the web bundle is present and the user opted into service
+# install. Linux only.
 install_service() {
   if [ "$INSTALL_SERVICE" != "1" ]; then
     return 0
@@ -221,13 +253,13 @@ install_service() {
   local unit_dir="/etc/systemd/system"
   local env_dir="/etc/roc-harness"
   local env_file="$env_dir/env"
-  local unit_file="$unit_dir/roc-harness-api.service"
+  local api_unit="$unit_dir/roc-harness-api.service"
+  local web_unit="$unit_dir/roc-harness-web.service"
   mkdir -p "$unit_dir" "$env_dir"
 
-  # The unit file is written unconditionally. The omp-bin flag
-  # uses the shared OMP_BIN env var so the service can find omp
-  # regardless of PATH.
-  cat > "$unit_file" <<UNIT
+  # The api unit always runs the binary on the chosen BIND
+  # address. The passphrase line is read from the env file.
+  cat > "$api_unit" <<UNIT
 [Unit]
 Description=roc-harness api
 After=network.target
@@ -235,7 +267,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$SHARE_DIR
-ExecStart=$SHARE_DIR/bin/api --port 30179 --share-dir $SHARE_DIR --passphrase-env ROCINANTE_PASSPHRASE --omp-bin \$OMP_BIN
+ExecStart=$SHARE_DIR/bin/api --bind $BIND --port 30179 --share-dir $SHARE_DIR --passphrase-env ROCINANTE_PASSPHRASE --omp-bin \$OMP_BIN
 EnvironmentFile=$env_file
 Restart=on-failure
 RestartSec=5
@@ -246,9 +278,7 @@ StandardError=append:/var/log/roc-harness-api.log
 WantedBy=multi-user.target
 UNIT
 
-  # Seed the env file with OMP_BIN pointing at the share-dir binary
-  # (or the existing one on $PATH). The passphrase line is added
-  # later — either by the interactive branch or by the user.
+  # Seed the env file with OMP_BIN pointing at the share-dir binary.
   if [ ! -f "$env_file" ]; then
     local omp_bin_path
     omp_bin_path="$(command -v omp 2>/dev/null || true)"
@@ -262,11 +292,6 @@ UNIT
     echo ">> wrote $env_file (with OMP_BIN=${omp_bin_path:-<not found>})"
   fi
 
-  # Write the passphrase. Interactive branch uses read with -t and
-  # a hidden prompt. Non-interactive branch requires the user to
-  # have already set the passphrase file outside this script.
-  # When the file is missing the passphrase line, we install the
-  # unit but do NOT enable or start the service.
   if ! grep -q '^ROCINANTE_PASSPHRASE=' "$env_file" 2>/dev/null; then
     if [ -t 0 ]; then
       printf 'ROCINANTE_PASSPHRASE=' >> "$env_file"
@@ -283,7 +308,7 @@ UNIT
       echo "           printf 'ROCINANTE_PASSPHRASE=your-passphrase' >> $env_file"
       echo "         then re-run: systemctl start roc-harness-api"
       systemctl daemon-reload
-      echo ">> wrote $unit_file (service not enabled yet)"
+      echo ">> wrote $api_unit (service not enabled yet)"
       return 0
     fi
   fi
@@ -292,6 +317,58 @@ UNIT
   systemctl enable --now roc-harness-api
   echo ">> enabled roc-harness-api"
   systemctl --no-pager status roc-harness-api | head -5
+
+  # The web unit is written + enabled only if the standalone
+  # bundle is present. The api advertises its public URL to the
+  # web via the env file so the frontend can build the right
+  # ^/api/v1/...^ links.
+  if [ ! -f "$SHARE_DIR/web/apps/web/server.js" ]; then
+    echo ">> web bundle not present; skipping roc-harness-web unit"
+    return 0
+  fi
+
+  cat > "$web_unit" <<WUNIT
+[Unit]
+Description=roc-harness web
+After=network.target roc-harness-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=$SHARE_DIR/web/apps/web
+ExecStart=/usr/bin/node $SHARE_DIR/web/apps/web/server.js
+EnvironmentFile=$env_file
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/roc-harness-web.log
+StandardError=append:/var/log/roc-harness-web.log
+
+[Install]
+WantedBy=multi-user.target
+WUNIT
+
+  # The web reads its api URL from the same env file. We always
+  # set RH_API_INTERNAL_URL to the api's loopback address (the
+  # server-side render runs inside the same host and the api is
+  # bound to 127.0.0.1 from the server's perspective). The
+  # NEXT_PUBLIC_RH_API_URL is what the browser hits; if the user
+  # didn't set it explicitly, we synthesise it from the bind
+  # address.
+  if ! grep -q '^RH_API_INTERNAL_URL=' "$env_file"; then
+    printf 'RH_API_INTERNAL_URL=http://127.0.0.1:30179\n' >> "$env_file"
+  fi
+  if [ -n "$PUBLIC_API_URL" ] && ! grep -q '^NEXT_PUBLIC_RH_API_URL=' "$env_file"; then
+    printf 'NEXT_PUBLIC_RH_API_URL=%s\n' "$PUBLIC_API_URL" >> "$env_file"
+  elif ! grep -q '^NEXT_PUBLIC_RH_API_URL=' "$env_file"; then
+    local scheme="http"
+    local host="$BIND"
+    [ "$BIND" = "0.0.0.0" ] && host=$(hostname -I | awk '{print $1}')
+    printf 'NEXT_PUBLIC_RH_API_URL=%s://%s:30179\n' "$scheme" "$host" >> "$env_file"
+  fi
+
+  systemctl daemon-reload
+  systemctl enable --now roc-harness-web
+  echo ">> enabled roc-harness-web"
+  systemctl --no-pager status roc-harness-web | head -5
 }
 install_service
 

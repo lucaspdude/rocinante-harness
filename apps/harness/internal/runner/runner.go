@@ -1,11 +1,7 @@
-// Package runner orchestrates the api + web subprocesses.
 package runner
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,21 +12,21 @@ import (
 	"time"
 )
 
-// State is the on-disk representation of the running harness.
-type State struct {
-	APIPID int    `json:"api_pid"`
-	WebPID int    `json:"web_pid"`
-	APIPort int   `json:"api_port"`
-	WebPort int   `json:"web_port"`
-	StartedAt time.Time `json:"started_at"`
-}
-
 // Process tracks a single child process.
 type Process struct {
-	Cmd     *exec.Cmd
-	Name    string
-	PID     int
-	Log     *os.File
+	Cmd  *exec.Cmd
+	Name string
+	PID  int
+	Log  *os.File
+}
+
+// State is the on-disk representation of the running harness.
+type State struct {
+	APIPID    int       `json:"api_pid"`
+	WebPID    int       `json:"web_pid"`
+	APIPort   int       `json:"api_port"`
+	WebPort   int       `json:"web_port"`
+	StartedAt time.Time `json:"started_at"`
 }
 
 // Runner holds the active subprocesses and the state file path.
@@ -51,7 +47,7 @@ func New(cacheDir, logDir string) *Runner {
 	}
 }
 
-// StartAPI starts the api binary. The opts.WebPort is unused here.
+// StartAPI starts the api binary.
 func (r *Runner) StartAPI(ctx context.Context, apiBin string, port int, shareDir string) error {
 	if err := os.MkdirAll(r.logDir, 0o700); err != nil {
 		return err
@@ -79,7 +75,12 @@ func (r *Runner) StartAPI(ctx context.Context, apiBin string, port int, shareDir
 	return nil
 }
 
-// StartWeb starts the Next standalone server.
+// StartWeb starts the Next standalone server. The webDir must
+// point to a directory produced by `next build` with
+// `output: 'standalone'`. The launcher looks for server.js at
+// both the conventional location
+// (<webDir>/apps/web/server.js) and the simpler fallback
+// (<webDir>/server.js).
 func (r *Runner) StartWeb(ctx context.Context, webDir string, port int) error {
 	if err := os.MkdirAll(r.logDir, 0o700); err != nil {
 		return err
@@ -88,12 +89,34 @@ func (r *Runner) StartWeb(ctx context.Context, webDir string, port int) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, "node", "node_modules/next/dist/bin/next", "start", "-p", fmt.Sprintf("%d", port), "-H", "127.0.0.1")
-	cmd.Dir = webDir
+
+	candidates := []string{
+		filepath.Join(webDir, "apps", "web", "server.js"),
+		filepath.Join(webDir, "server.js"),
+	}
+	var serverPath string
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			serverPath = c
+			break
+		}
+	}
+	if serverPath == "" {
+		_ = logFile.Close()
+		return fmt.Errorf("standalone server.js not found under %s (tried %v)", webDir, candidates)
+	}
+
+	cmd := exec.CommandContext(ctx, "node", serverPath)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("PORT=%d", port),
-		"HOSTNAME=127.0.0.1",
+		"HOSTNAME=0.0.0.0",
 	)
+	if apiUrl := os.Getenv("ROCINANTE_API_INTERNAL_URL"); apiUrl != "" {
+		cmd.Env = append(cmd.Env, "RH_API_INTERNAL_URL="+apiUrl)
+	}
+	if publicApi := os.Getenv("ROCINANTE_PUBLIC_API_URL"); publicApi != "" {
+		cmd.Env = append(cmd.Env, "NEXT_PUBLIC_RH_API_URL="+publicApi)
+	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
@@ -166,7 +189,7 @@ func (r *Runner) PIDFile() error {
 	if err := os.MkdirAll(r.cacheDir, 0o700); err != nil {
 		return err
 	}
-	body, err := json.MarshalIndent(r.State(), "", "  ")
+	body, err := jsonMarshalIndent(r.State())
 	if err != nil {
 		return err
 	}
@@ -186,7 +209,7 @@ func LoadState(cacheDir string) (State, error) {
 		return State{}, err
 	}
 	var s State
-	if err := json.Unmarshal(body, &s); err != nil {
+	if err := jsonUnmarshal(body, &s); err != nil {
 		return State{}, err
 	}
 	return s, nil
@@ -195,11 +218,11 @@ func LoadState(cacheDir string) (State, error) {
 // TailLogs opens the log files and tails the last N lines.
 func TailLogs(logDir string, n int) (string, error) {
 	api, err := tailFile(filepath.Join(logDir, "api.log"), n)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err != nil && !errorsIs(err, os.ErrNotExist) {
 		return "", err
 	}
 	web, err := tailFile(filepath.Join(logDir, "web.log"), n)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err != nil && !errorsIs(err, os.ErrNotExist) {
 		return "", err
 	}
 	return "=== api.log ===\n" + api + "\n=== web.log ===\n" + web, nil
@@ -212,7 +235,7 @@ func tailFile(path string, n int) (string, error) {
 	}
 	defer f.Close()
 	lines := make([]string, 0, n)
-	scanner := bufio.NewScanner(f)
+	scanner := bufioNewScanner(f)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 		if len(lines) > n {
