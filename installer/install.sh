@@ -148,9 +148,6 @@ install_omp() {
     return 0
   fi
 
-  # Resolve an omp release tag. We pin to the same tag as the
-  # roc-harness release if the user set ROCINANTE_VERSION;
-  # otherwise we fetch the latest tag from can1357/oh-my-pi.
   local tag
   if [ -n "${ROCINANTE_VERSION:-}" ]; then
     tag="${ROCINANTE_VERSION#v}"
@@ -167,9 +164,6 @@ install_omp() {
     return 1
   fi
 
-  # Pick the asset name. can1357/oh-my-pi uses x64/arm64 (not
-  # the Go convention amd64/arm64). On linux we prefer glibc;
-  # fall back to musl if glibc is unavailable on the host.
   local ext=""
   case "$GOOS" in
     linux) base="omp-linux-${OMP_ARCH}" ;;
@@ -207,8 +201,10 @@ fi
 
 # --- systemd service install (optional) ---------------------------
 # Writes a unit file that runs the api under systemd with the
-# passphrase pulled from /etc/roc-harness/passphrase. On Linux
-# distros that ship systemd. On macOS / Windows this is a no-op.
+# passphrase pulled from /etc/roc-harness/env. The unit also
+# references $OMP_BIN (the path to the omp binary) so the service
+# does not need omp on $PATH. On Linux distros that ship systemd.
+# On macOS / Windows this is a no-op.
 install_service() {
   if [ "$INSTALL_SERVICE" != "1" ]; then
     return 0
@@ -224,12 +220,13 @@ install_service() {
 
   local unit_dir="/etc/systemd/system"
   local env_dir="/etc/roc-harness"
-  local env_file="$env_dir/passphrase"
+  local env_file="$env_dir/env"
   local unit_file="$unit_dir/roc-harness-api.service"
   mkdir -p "$unit_dir" "$env_dir"
 
-  # Write the unit file first. The EnvironmentFile= directive is
-  # inline so systemd picks up the passphrase at start time.
+  # The unit file is written unconditionally. The omp-bin flag
+  # uses the shared OMP_BIN env var so the service can find omp
+  # regardless of PATH.
   cat > "$unit_file" <<UNIT
 [Unit]
 Description=roc-harness api
@@ -238,7 +235,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$SHARE_DIR
-ExecStart=$SHARE_DIR/bin/api --port 30179 --share-dir $SHARE_DIR --passphrase-env ROCINANTE_PASSPHRASE
+ExecStart=$SHARE_DIR/bin/api --port 30179 --share-dir $SHARE_DIR --passphrase-env ROCINANTE_PASSPHRASE --omp-bin \$OMP_BIN
 EnvironmentFile=$env_file
 Restart=on-failure
 RestartSec=5
@@ -249,29 +246,41 @@ StandardError=append:/var/log/roc-harness-api.log
 WantedBy=multi-user.target
 UNIT
 
-  # Write the passphrase file. The interactive branch uses read
-  # with -t and a hidden prompt. The non-interactive branch
-  # requires the user to have already set the passphrase file
-  # outside this script (e.g. via cloud-init, an ops tool, or a
-  # previous run). When the file is missing, we install the
-  # unit but do NOT enable or start the service — let the user
-  # create the file and run `systemctl start roc-harness-api`.
+  # Seed the env file with OMP_BIN pointing at the share-dir binary
+  # (or the existing one on $PATH). The passphrase line is added
+  # later — either by the interactive branch or by the user.
   if [ ! -f "$env_file" ]; then
+    local omp_bin_path
+    omp_bin_path="$(command -v omp 2>/dev/null || true)"
+    if [ -z "$omp_bin_path" ] && [ -x "$SHARE_DIR/bin/omp" ]; then
+      omp_bin_path="$SHARE_DIR/bin/omp"
+    fi
+    {
+      echo "OMP_BIN=${omp_bin_path:-}"
+    } > "$env_file"
+    chmod 0600 "$env_file"
+    echo ">> wrote $env_file (with OMP_BIN=${omp_bin_path:-<not found>})"
+  fi
+
+  # Write the passphrase. Interactive branch uses read with -t and
+  # a hidden prompt. Non-interactive branch requires the user to
+  # have already set the passphrase file outside this script.
+  # When the file is missing the passphrase line, we install the
+  # unit but do NOT enable or start the service.
+  if ! grep -q '^ROCINANTE_PASSPHRASE=' "$env_file" 2>/dev/null; then
     if [ -t 0 ]; then
-      printf 'ROCINANTE_PASSPHRASE=' > "$env_file.tmp"
+      printf 'ROCINANTE_PASSPHRASE=' >> "$env_file"
       stty -echo 2>/dev/null || true
-      read -r -p "passphrase for the service (will be stored in $env_file, mode 0600): " PW
+      read -r -p "passphrase for the service (appended to $env_file, mode 0600): " PW
       stty echo 2>/dev/null || true
       echo
-      echo "$PW" >> "$env_file.tmp"
-      mv "$env_file.tmp" "$env_file"
+      echo >> "$env_file"
       chmod 0600 "$env_file"
-      echo ">> wrote $env_file"
+      echo ">> appended passphrase to $env_file"
     else
-      echo "warning: non-interactive shell; no passphrase file at $env_file"
-      echo "         create it with:"
-      echo "           printf 'ROCINANTE_PASSPHRASE=your-passphrase' > $env_file"
-      echo "           chmod 0600 $env_file"
+      echo "warning: non-interactive shell; no passphrase in $env_file"
+      echo "         append a line:"
+      echo "           printf 'ROCINANTE_PASSPHRASE=your-passphrase' >> $env_file"
       echo "         then re-run: systemctl start roc-harness-api"
       systemctl daemon-reload
       echo ">> wrote $unit_file (service not enabled yet)"
