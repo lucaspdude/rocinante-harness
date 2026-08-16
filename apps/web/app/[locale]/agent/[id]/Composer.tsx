@@ -11,7 +11,14 @@ interface ComposerProps {
   stopLabel: string;
 }
 
-export function Composer({ busy, onSend, onAbort, placeholder, sendLabel, stopLabel }: ComposerProps) {
+export function Composer({
+  busy,
+  onSend,
+  onAbort,
+  placeholder,
+  sendLabel,
+  stopLabel,
+}: ComposerProps) {
   const [text, setText] = useState("");
   function submit() {
     if (text.trim() === "") return;
@@ -19,7 +26,7 @@ export function Composer({ busy, onSend, onAbort, placeholder, sendLabel, stopLa
     setText("");
   }
   return (
-    <div>
+    <div className="flex flex-col gap-2">
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -32,16 +39,27 @@ export function Composer({ busy, onSend, onAbort, placeholder, sendLabel, stopLa
         }}
         rows={3}
         aria-label={placeholder}
+        className="rh-input resize-none"
       />
-      {busy ? (
-        <button type="button" onClick={onAbort}>
-          {stopLabel}
-        </button>
-      ) : (
-        <button type="button" onClick={submit}>
-          {sendLabel}
-        </button>
-      )}
+      <div className="flex justify-end">
+        {busy ? (
+          <button
+            type="button"
+            onClick={onAbort}
+            className="rh-button-danger"
+          >
+            {stopLabel}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={submit}
+            className="rh-button-primary"
+          >
+            {sendLabel}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

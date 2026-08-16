@@ -1,0 +1,29 @@
+# Default code owners for the rocinante-harness repo.
+# Single-owner project: lucaspdude.
+
+* @lucaspdude
+
+# API surface — api maintainer gets pinged on every PR touching these.
+apps/api/                       @lucaspdude
+apps/api/internal/api/          @lucaspdude
+apps/api/internal/auth/         @lucaspdude
+apps/api/internal/omp/          @lucaspdude
+apps/api/internal/storage/      @lucaspdude
+apps/api/internal/ssh/          @lucaspdude
+
+# Front-web — front maintainer gets pinged on every PR touching these.
+apps/web/                       @lucaspdude
+apps/web/app/                   @lucaspdude
+apps/web/lib/                   @lucaspdude
+
+# Launcher / installer.
+apps/harness/                   @lucaspdude
+installer/                      @lucaspdude
+
+# Shared contract.
+packages/contract/              @lucaspdude
+
+# CI / docs / experiments.
+.github/                        @lucaspdude
+docs/                           @lucaspdude
+scripts/                        @lucaspdude

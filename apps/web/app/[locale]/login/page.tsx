@@ -51,33 +51,57 @@ export default function LoginPage() {
   }
 
   return (
-    <main>
-      <h1>{t("login.title")}</h1>
-      <p>{t("login.subtitle")}</p>
-      <form onSubmit={onSubmit}>
-        <label htmlFor="passphrase">{t("login.passphrase")}</label>
-        <input
-          id="passphrase"
-          name="passphrase"
-          type="password"
-          autoComplete="current-password"
-          value={passphrase}
-          onChange={(e) => setPassphrase(e.target.value)}
-          required
-        />
-        <label htmlFor="deviceName">{t("login.deviceName")}</label>
-        <input
-          id="deviceName"
-          name="deviceName"
-          type="text"
-          value={deviceName}
-          onChange={(e) => setDeviceName(e.target.value)}
-        />
-        {error && <p role="alert">{error}</p>}
-        <button type="submit" disabled={busy}>
-          {t("login.submit")}
-        </button>
-      </form>
+    <main className="min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-md">
+        <div className="rh-card">
+          <h1 className="text-2xl font-semibold mb-2">{t("login.title")}</h1>
+          <p className="text-[var(--color-fg-muted)] mb-6">
+            {t("login.subtitle")}
+          </p>
+          <form onSubmit={onSubmit} className="flex flex-col gap-4">
+            <div>
+              <label className="rh-label" htmlFor="passphrase">
+                {t("login.passphrase")}
+              </label>
+              <input
+                id="passphrase"
+                name="passphrase"
+                type="password"
+                autoComplete="current-password"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                required
+                className="rh-input"
+              />
+            </div>
+            <div>
+              <label className="rh-label" htmlFor="deviceName">
+                {t("login.deviceName")}
+              </label>
+              <input
+                id="deviceName"
+                name="deviceName"
+                type="text"
+                value={deviceName}
+                onChange={(e) => setDeviceName(e.target.value)}
+                className="rh-input"
+              />
+            </div>
+            {error && (
+              <p role="alert" className="rh-error">
+                {error}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={busy}
+              className="rh-button-primary"
+            >
+              {t("login.submit")}
+            </button>
+          </form>
+        </div>
+      </div>
     </main>
   );
 }

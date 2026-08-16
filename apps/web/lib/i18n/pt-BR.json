@@ -1,5 +1,6 @@
 {
   "app.name": "rocinante-harness",
+  "app.tagline": "Harness de agente de IA auto-hospedado.",
   "login.title": "Entrar",
   "login.subtitle": "Digite sua passphrase para continuar.",
   "login.passphrase": "Passphrase",
@@ -12,6 +13,10 @@
   "agent.placeholder": "Digite um prompt...",
   "agent.send": "Enviar",
   "agent.stop": "Parar",
+  "agent.newSession": "Nova sessão",
+  "agent.empty": "Envie um prompt para começar.",
+  "agent.connecting": "Conectando...",
+  "agent.disconnected": "Desconectado.",
   "settings.title": "Configurações",
   "settings.general": "Geral",
   "settings.locale": "Idioma",
@@ -25,6 +30,7 @@
   "settings.devicesEmpty": "Nenhum dispositivo ainda.",
   "settings.current": "atual",
   "settings.revoke": "Revogar",
+  "settings.about": "Sobre",
   "onboarding.title": "Bem-vindo",
   "onboarding.subtitle": "Escolha uma passphrase para desbloquear a api.",
   "onboarding.passphrase": "Passphrase",
@@ -32,5 +38,16 @@
   "onboarding.locale": "Idioma",
   "onboarding.submit": "Concluir configuração",
   "onboarding.complete": "Configuração concluída.",
-  "onboarding.goLogin": "Continuar para entrar"
+  "onboarding.goLogin": "Continuar para entrar",
+  "sidebar.title": "Sessões",
+  "sidebar.empty": "Nenhuma sessão ainda.",
+  "sidebar.newSession": "Nova sessão",
+  "sidebar.loading": "Carregando sessões...",
+  "sidebar.delete": "Excluir",
+  "common.cancel": "Cancelar",
+  "common.confirm": "Confirmar",
+  "common.close": "Fechar",
+  "common.delete": "Excluir",
+  "common.save": "Salvar",
+  "common.loading": "Carregando..."
 }

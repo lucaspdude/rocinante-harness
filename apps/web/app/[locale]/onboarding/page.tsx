@@ -22,7 +22,9 @@ export default function OnboardingPage() {
   useEffect(() => {
     api.get<OnboardingStatus>("/api/v1/onboarding/status")
       .then(setStatus)
-      .catch(() => setStatus({ initialized: false, requires_setup: true, api_version: "0.1.0" }));
+      .catch(() =>
+        setStatus({ initialized: false, requires_setup: true, api_version: "0.1.0" })
+      );
   }, []);
 
   async function submit() {
@@ -52,52 +54,101 @@ export default function OnboardingPage() {
     }
   }
 
-  if (!status) return <main><p>loading…</p></main>;
+  if (!status) {
+    return (
+      <main className="min-h-screen flex items-center justify-center px-4">
+        <p className="text-[var(--color-fg-muted)]">{t("common.loading")}</p>
+      </main>
+    );
+  }
 
   if (status.initialized) {
     return (
-      <main>
-        <h1>{t("onboarding.complete")}</h1>
-        <p>
-          <a href={`/${locale}/login`}>{t("onboarding.goLogin")}</a>
-        </p>
+      <main className="min-h-screen flex items-center justify-center px-4">
+        <div className="rh-card text-center">
+          <h1 className="text-2xl font-semibold mb-3">
+            {t("onboarding.complete")}
+          </h1>
+          <a
+            href={`/${locale}/login`}
+            className="rh-button-primary inline-block"
+          >
+            {t("onboarding.goLogin")}
+          </a>
+        </div>
       </main>
     );
   }
 
   return (
-    <main>
-      <h1>{t("onboarding.title")}</h1>
-      <p>{t("onboarding.subtitle")}</p>
-      <label>
-        {t("onboarding.passphrase")}
-        <input
-          type="password"
-          value={passphrase}
-          onChange={(e) => setPassphrase(e.target.value)}
-          autoComplete="new-password"
-        />
-      </label>
-      <label>
-        {t("onboarding.confirm")}
-        <input
-          type="password"
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          autoComplete="new-password"
-        />
-      </label>
-      <label>
-        {t("onboarding.locale")}
-        <select value={locale} onChange={(e) => setLocale(e.target.value as "en-US" | "pt-BR")}>
-          <option value="en-US">en-US</option>
-          <option value="pt-BR">pt-BR</option>
-        </select>
-      </label>
-      {error && <p role="alert">{error}</p>}
-      <button type="button" onClick={submit} disabled={busy}>
-        {t("onboarding.submit")}
-      </button>
+    <main className="min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-md">
+        <div className="rh-card">
+          <h1 className="text-2xl font-semibold mb-2">
+            {t("onboarding.title")}
+          </h1>
+          <p className="text-[var(--color-fg-muted)] mb-6">
+            {t("onboarding.subtitle")}
+          </p>
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="rh-label" htmlFor="onb-pass">
+                {t("onboarding.passphrase")}
+              </label>
+              <input
+                id="onb-pass"
+                type="password"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                autoComplete="new-password"
+                className="rh-input"
+              />
+            </div>
+            <div>
+              <label className="rh-label" htmlFor="onb-confirm">
+                {t("onboarding.confirm")}
+              </label>
+              <input
+                id="onb-confirm"
+                type="password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="new-password"
+                className="rh-input"
+              />
+            </div>
+            <div>
+              <label className="rh-label" htmlFor="onb-locale">
+                {t("onboarding.locale")}
+              </label>
+              <select
+                id="onb-locale"
+                value={locale}
+                onChange={(e) =>
+                  setLocale(e.target.value as "en-US" | "pt-BR")
+                }
+                className="rh-input"
+              >
+                <option value="en-US">en-US</option>
+                <option value="pt-BR">pt-BR</option>
+              </select>
+            </div>
+            {error && (
+              <p role="alert" className="rh-error">
+                {error}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={submit}
+              disabled={busy}
+              className="rh-button-primary"
+            >
+              {t("onboarding.submit")}
+            </button>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }

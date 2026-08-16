@@ -14,7 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
+	"runtime"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
@@ -52,7 +52,10 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println("api " + apiVersion)
+		fmt.Printf("api %s\n", apiVersion)
+		fmt.Printf("  go:    %s\n", runtime.Version())
+		fmt.Printf("  os:    %s\n", runtime.GOOS)
+		fmt.Printf("  arch:  %s\n", runtime.GOARCH)
 		return
 	}
 
