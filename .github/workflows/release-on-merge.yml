@@ -1,0 +1,76 @@
+name: Release on merge
+
+on:
+  push:
+    branches: [main]
+
+# Required: classic PAT with `repo` scope stored as
+# RH_RELEASE_TOKEN. The default GITHUB_TOKEN cannot trigger
+# other workflows (release.yml) or push tags.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.repository == 'lucaspdude/rocinante-harness'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RH_RELEASE_TOKEN }}
+
+      - name: Determine next version
+        id: version
+        env:
+          TOKEN: ${{ secrets.RH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          LATEST=$(git tag --sort=-v:refname | head -1 || echo "")
+          if [ -z "$LATEST" ]; then
+            BASE="v0.0.0"
+          else
+            BASE="$LATEST"
+          fi
+          BASE_NO_V="${BASE#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_NO_V"
+          LAST_MSG=$(git log -1 --pretty=%s)
+          if echo "$LAST_MSG" | grep -qE '^feat(\([^)]+\))?!:'; then
+            # Breaking change.
+            NEXT="v$((MAJOR + 1)).0.0"
+          elif echo "$LAST_MSG" | grep -qE '^feat(\([^)]+\))?:'; then
+            # New feature.
+            NEXT="v${MAJOR}.$((MINOR + 1)).0"
+          else
+            # Default: patch bump.
+            NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          {
+            echo "tag=${NEXT}"
+            echo "previous=${BASE}"
+            echo "last_msg=${LAST_MSG}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        env:
+          TOKEN: ${{ secrets.RH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          git config user.email "release-bot@local"
+          git config user.name "roc-harness release bot"
+          git tag -a "${TAG}" -m "${TAG}: ${{ steps.version.outputs.last_msg }}"
+          git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${TAG}"
+          echo "created=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger release workflow
+        env:
+          TOKEN: ${{ secrets.RH_RELEASE_TOKEN }}
+        run: |
+          curl -fsSL \
+            -X POST \
+            -H "Authorization: token ${TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
+            -d "{\"ref\":\"${GITHUB_REF}\",\"inputs\":{\"tag\":\"${{ steps.version.outputs.tag }}\"}}"

@@ -1,6 +1,12 @@
 name: Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.2). Defaults to the latest tag."
+        required: false
+        type: string
   push:
     tags: ["v*"]
 
@@ -65,13 +71,24 @@ jobs:
           cd dist
           sha256sum api-* > SHA256SUMS
           mv SHA256SUMS ../dist/
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          name: ${{ steps.tag.outputs.value }}
+          generate_release_notes: true
           files: |
             dist/api-*
             dist/SHA256SUMS
             apps/harness/bin/roc-harness-*
-        body: |
-          Release ${{ github.ref_name }}.
-          See docs/deploy/ for installation.
+          body: |
+            Release ${{ steps.tag.outputs.value }}.
+            See docs/deploy/ for installation.
