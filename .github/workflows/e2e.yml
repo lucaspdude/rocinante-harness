@@ -42,7 +42,13 @@ jobs:
 
       - name: Build web
         working-directory: apps/web
-        run: pnpm build
+        run: |
+          pnpm build
+          # Next 16 standalone omits .next/static/ by default.
+          # Copy into the standalone output so the minimal server can
+          # serve CSS/JS chunks.
+          mkdir -p .next/standalone/.next
+          cp -r .next/static/. .next/standalone/.next/static/
 
       - name: Init api with passphrase
         run: |
@@ -61,7 +67,7 @@ jobs:
       - name: Start web
         working-directory: apps/web
         run: |
-          PORT=30178 nohup node server.js > /tmp/web.log 2>&1 &
+          PORT=30178 nohup node .next/standalone/apps/web/server.js > /tmp/web.log 2>&1 &
 
       - name: Wait for api + web
         run: |
@@ -72,6 +78,8 @@ jobs:
           done
           curl -sf http://127.0.0.1:30179/api/v1/healthz
           echo
+          echo "---web log---"
+          cat /tmp/web.log
 
       - name: Install Playwright browsers
         working-directory: apps/web
