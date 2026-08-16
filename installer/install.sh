@@ -58,8 +58,14 @@ echo ">> installing roc-harness ${VERSION} from ${REPO}"
 
 ARCH=$(uname -m)
 case "$ARCH" in
-  x86_64) GOARCH=x64 ;;
-  arm64|aarch64) GOARCH=arm64 ;;
+  x86_64|amd64)
+    GOARCH=amd64        # Go + roc-harness asset naming
+    OMP_ARCH=x64        # can1357/oh-my-pi asset naming
+    ;;
+  arm64|aarch64)
+    GOARCH=arm64
+    OMP_ARCH=arm64
+    ;;
   *) echo "unsupported arch: $ARCH" >&2; exit 1 ;;
 esac
 GOOS=$(uname | tr '[:upper:]' '[:lower:]')
@@ -142,7 +148,9 @@ install_omp() {
     return 0
   fi
 
-  # Resolve an omp release tag: explicit env > latest release > main.
+  # Resolve an omp release tag. We pin to the same tag as the
+  # roc-harness release if the user set ROCINANTE_VERSION;
+  # otherwise we fetch the latest tag from can1357/oh-my-pi.
   local tag
   if [ -n "${ROCINANTE_VERSION:-}" ]; then
     tag="${ROCINANTE_VERSION#v}"
@@ -159,13 +167,14 @@ install_omp() {
     return 1
   fi
 
-  # Pick the asset name. On linux we prefer glibc; fall back to
-  # musl if glibc is unavailable on the host (musl-based distros).
+  # Pick the asset name. can1357/oh-my-pi uses x64/arm64 (not
+  # the Go convention amd64/arm64). On linux we prefer glibc;
+  # fall back to musl if glibc is unavailable on the host.
   local ext=""
   case "$GOOS" in
-    linux) base="omp-linux-${GOARCH}" ;;
-    darwin) base="omp-darwin-${GOARCH}" ;;
-    windows) base="omp-windows-${GOARCH}.exe" ;;
+    linux) base="omp-linux-${OMP_ARCH}" ;;
+    darwin) base="omp-darwin-${OMP_ARCH}" ;;
+    windows) base="omp-windows-${OMP_ARCH}.exe" ;;
     *) echo "warning: no omp asset for $GOOS"; return 1 ;;
   esac
   local omp_url="https://github.com/can1357/oh-my-pi/releases/download/v${tag}/${base}"
