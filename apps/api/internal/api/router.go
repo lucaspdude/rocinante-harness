@@ -45,6 +45,10 @@ func NewRouter(deps RouterDeps) http.Handler {
 		r.Get("/api/v1/meta", omp.NewMetaHandler(deps.MetaLoader, deps.APIVersion, &keystore.EnvProbe{}))
 	}
 	r.Get("/api/v1/onboarding/status", OnboardingStatus(deps.ShareDir, deps.APIVersion))
+	if deps.ShareDir != "" {
+		r.Post("/api/v1/onboarding/init", OnboardingInit(deps.ShareDir))
+	}
+
 	if deps.AuthState != nil {
 		idem := middleware.IdempotencyMiddleware(deps.Idempotency)
 		r.Post("/api/v1/login", WrapHandler(idem, LoginHandler(deps.AuthState)))
