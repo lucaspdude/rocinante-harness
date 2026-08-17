@@ -196,7 +196,7 @@ Type=simple
 WorkingDirectory=$SHARE_DIR
 ExecStart=$SHARE_DIR/bin/api --share-dir $SHARE_DIR --port 30179
 EnvironmentFile=$ENV_FILE
-Restart=on-failure
+Restart=always
 RestartSec=5
 NoNewPrivileges=true
 
