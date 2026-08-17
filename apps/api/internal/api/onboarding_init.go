@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/storage"
@@ -45,7 +46,16 @@ const minPassphraseLength = 8
 // auth group. Locking the api down so that .ed25519 cannot be
 // created over the wire once it already exists is the whole
 // point of the 409 below.
+//
+// After a successful init the api process exits so the new
+// .ed25519 file is picked up on the next start. systemd
+// restarts the unit. The 250 ms delay gives the response a
+// chance to reach the browser first.
+//
+// RH_TESTING=1 disables the self-exit so unit tests can run
+// the handler end-to-end.
 func OnboardingInit(shareDir string) http.HandlerFunc {
+	testing := os.Getenv("RH_TESTING") == "1"
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req OnboardingInitRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -128,6 +138,18 @@ func OnboardingInit(shareDir string) http.HandlerFunc {
 			backupPath, sk, pk, req.Passphrase, auth.DefaultKDFParams,
 		)
 		_ = pk
+
+		if !testing {
+			// Self-restart: the api loaded the .ed25519 at
+			// startup; now that we created one, the running
+			// process needs to reload it. The 250 ms delay
+			// gives the response a chance to reach the
+			// browser first.
+			go func() {
+				time.Sleep(250 * time.Millisecond)
+				os.Exit(0)
+			}()
+		}
 
 		writeJSON(w, http.StatusOK, OnboardingInitResponse{
 			Initialized: true,
