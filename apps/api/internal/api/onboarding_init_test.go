@@ -15,8 +15,12 @@ import (
 
 // newOnboardingRouter builds a chi router with the minimum
 // setup needed to exercise OnboardingInit in isolation. We
-// don't need auth or the keystore for the init flow.
+// don't need auth or the keystore for the init flow. The
+// RH_TESTING=1 env disables the handler's self-exit so
+// tests in the same go-test run aren't killed by the
+// goroutine.
 func newOnboardingRouter(shareDir string) http.Handler {
+	os.Setenv("RH_TESTING", "1")
 	r := chi.NewRouter()
 	r.Post("/api/v1/onboarding/init", OnboardingInit(shareDir))
 	return r
