@@ -20,8 +20,10 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/catalog"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/envconfig"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/files"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/keystore"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/projects"
 	sshpkg "github.com/lucaspdude/rocinante-harness/apps/api/internal/ssh"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/storage"
 )
@@ -117,6 +119,22 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+
+	// PR-03: project registry + file-access allow-list. Migration runs
+	// before the server starts so the first poll from the web returns
+	// any pre-existing ompweb projects.
+	projectReg := projects.NewRegistry(effectiveShareDir)
+	if mr, err := projects.MigrateFromOmpweb(projectReg, effectiveShareDir); err != nil {
+		log.Printf("warning: ompweb projects migration failed: %v", err)
+	} else if mr.Added > 0 || mr.SkippedExisting > 0 {
+		log.Printf("migrated %d ompweb project(s); skipped %d existing",
+			mr.Added, mr.SkippedExisting)
+	}
+	fileAccess := files.NewFileAccess()
+	for _, p := range projectReg.List() {
+		fileAccess.QuietAllow(p.Path)
+	}
+
 	mux.Handle("/", middleware.TLSHandler(
 		middleware.CORSHandler(middleware.CORSConfig{})(
 			api.NewRouter(api.RouterDeps{
@@ -138,6 +156,11 @@ func main() {
 					catalog.NewModelsDevCatalog(),
 					api.NewStaticLoginProviders(&keystore.EnvProbe{Store: keystoreStore}),
 				),
+				Projects: &api.ProjectsHandlers{
+					Registry:   projectReg,
+					Sessions:   manager,
+					FileAccess: fileAccess,
+				},
 			}),
 		),
 	))

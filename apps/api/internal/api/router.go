@@ -24,6 +24,7 @@ type RouterDeps struct {
 	ProviderKeys  *keystore.Store
 	LoginHandlers *LoginHandlers
 	ModelsCatalog *ModelsCatalogHandler
+	Projects      *ProjectsHandlers
 }
 
 // WrapHandler chains a middleware around an http.HandlerFunc,
@@ -86,6 +87,16 @@ func NewRouter(deps RouterDeps) http.Handler {
 			r.Delete("/api/v1/devices/{id}", DeleteDeviceHandler(deps.AuthState))
 			r.Post("/api/v1/logout", LogoutHandler(deps.AuthState))
 			r.Post("/api/v1/pairing/init", PairingInitHandler(deps.AuthState))
+		})
+	}
+
+	// PR-03: projects (auth-protected).
+	if deps.Projects != nil {
+		r.Route("/api/v1/projects", func(r chi.Router) {
+			r.Get("/", deps.Projects.ProjectsHandler)
+			r.Post("/", deps.Projects.ProjectsHandler)
+			r.Patch("/", deps.Projects.PatchHandler)
+			r.Delete("/", deps.Projects.DeleteHandler)
 		})
 	}
 
