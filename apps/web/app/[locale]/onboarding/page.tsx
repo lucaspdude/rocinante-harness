@@ -1,8 +1,21 @@
 "use client";
 
+// Onboarding has 2 steps now:
+//
+//   1. Passphrase + locale (sets up the api's auth)
+//   2. Provider credentials (informational; the api can't store
+//      the keys, so this step explains where to put them and
+//      shows the live checklist of what's already set)
+//
+// Step 2 is skippable: many users will want to finish setting
+// up the api first, then come back to providers later. The
+// "Skip for now" button jumps to /login. After step 2, the
+// user lands on /login as before.
+
 import { useEffect, useState } from "react";
-import { useT } from "../../../lib/i18n";
+import { useT, useLocalizedPath } from "../../../lib/i18n";
 import { api } from "../../../lib/api/client";
+import { ProvidersPanel } from "../../../lib/providers/ProvidersPanel";
 
 interface OnboardingStatus {
   initialized: boolean;
@@ -10,20 +23,29 @@ interface OnboardingStatus {
   api_version: string;
 }
 
+type Step = "passphrase" | "providers";
+
 export default function OnboardingPage() {
   const t = useT();
+  const lp = useLocalizedPath();
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   const [passphrase, setPassphrase] = useState("");
   const [confirm, setConfirm] = useState("");
   const [locale, setLocale] = useState<"en-US" | "pt-BR">("en-US");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState<Step>("passphrase");
 
   useEffect(() => {
-    api.get<OnboardingStatus>("/api/v1/onboarding/status")
+    api
+      .get<OnboardingStatus>("/api/v1/onboarding/status")
       .then(setStatus)
       .catch(() =>
-        setStatus({ initialized: false, requires_setup: true, api_version: "0.1.0" })
+        setStatus({
+          initialized: false,
+          requires_setup: true,
+          api_version: "0.1.0",
+        })
       );
   }, []);
 
@@ -46,9 +68,9 @@ export default function OnboardingPage() {
       });
       if (!res.ok) {
         setError(`init failed: ${res.status}`);
-      } else {
-        window.location.href = `/${locale}/login`;
+        return;
       }
+      setStep("providers");
     } finally {
       setBusy(false);
     }
@@ -69,12 +91,27 @@ export default function OnboardingPage() {
           <h1 className="text-2xl font-semibold mb-3">
             {t("onboarding.complete")}
           </h1>
-          <a
-            href={`/${locale}/login`}
-            className="rh-button-primary inline-block"
-          >
+          <a href={lp("/login")} className="rh-button-primary inline-block">
             {t("onboarding.goLogin")}
           </a>
+        </div>
+      </main>
+    );
+  }
+
+  if (step === "providers") {
+    return (
+      <main className="min-h-screen flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-2xl">
+          <ProvidersPanel />
+          <div className="mt-6 flex justify-end gap-3">
+            <a
+              href={lp("/login")}
+              className="rh-button-primary inline-block"
+            >
+              {t("onboarding.goLogin")}
+            </a>
+          </div>
         </div>
       </main>
     );

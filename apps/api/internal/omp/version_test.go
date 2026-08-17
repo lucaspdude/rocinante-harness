@@ -9,16 +9,30 @@ import (
 )
 
 type stubLoader struct {
-	bin    string
-	proto  int
-	ver    string
+	bin   string
+	proto int
+	ver   string
 }
 
-func (s stubLoader) OmpBin() string { return s.bin }
+func (s stubLoader) OmpBin() string             { return s.bin }
 func (s stubLoader) OmpVersion() (int, string) { return s.proto, s.ver }
 
+// stubProbe is a hand-rolled ProviderProbe: it answers
+// IsConfigured by looking up the name in a map.
+type stubProbe map[string]bool
+
+func (s stubProbe) IsConfigured(name string) bool { return s[name] }
+
 func TestMetaHandlerOmpFound(t *testing.T) {
-	h := NewMetaHandler(stubLoader{bin: "/usr/local/bin/omp", proto: 2, ver: "omp/17.3.4"}, "0.1.0")
+	probe := stubProbe{
+		"anthropic": true,
+		"minimax":   true,
+	}
+	h := NewMetaHandler(
+		stubLoader{bin: "/usr/local/bin/omp", proto: 2, ver: "omp/17.3.4"},
+		"0.1.0",
+		probe,
+	)
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/meta", nil)
 	h.ServeHTTP(rr, req)
@@ -41,10 +55,19 @@ func TestMetaHandlerOmpFound(t *testing.T) {
 	if body.OmpBin != "/usr/local/bin/omp" {
 		t.Errorf("OmpBin = %q", body.OmpBin)
 	}
+	if !body.Providers.Anthropic {
+		t.Error("Providers.Anthropic = false, want true")
+	}
+	if !body.Providers.Minimax {
+		t.Error("Providers.Minimax = false, want true")
+	}
+	if body.Providers.OpenAI {
+		t.Error("Providers.OpenAI = true, want false")
+	}
 }
 
 func TestMetaHandlerOmpMissing(t *testing.T) {
-	h := NewMetaHandler(stubLoader{bin: ""}, "0.1.0")
+	h := NewMetaHandler(stubLoader{bin: ""}, "0.1.0", stubProbe{})
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/meta", nil)
 	h.ServeHTTP(rr, req)

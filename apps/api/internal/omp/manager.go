@@ -23,17 +23,26 @@ type SessionRecord struct {
 	LastSeenAt      time.Time `json:"last_seen_at"`
 }
 
+// SessionFactory is the seam used by tests.
+type SessionFactory interface {
+	NewSession(opts Options) (*Session, error)
+}
+
+// EnvProvider returns the per-spawn env that the api wants
+// injected into the omp subprocess. Most callers wire this to
+// the keystore: every Spawn reads the current keys file and
+// passes them to the subprocess. nil means "no extras".
+type EnvProvider interface {
+	Env() ([]string, error)
+}
+
 // Manager owns the live set of sessions. Safe for concurrent use.
 type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
 	records  map[string]SessionRecord
 	factory  SessionFactory
-}
-
-// SessionFactory is the seam used by tests.
-type SessionFactory interface {
-	NewSession(opts Options) (*Session, error)
+	env      EnvProvider
 }
 
 type spawnFactory struct {
@@ -52,8 +61,18 @@ func NewManager(ompBin string) *Manager {
 		factory:  spawnFactory{bin: ompBin},
 	}
 }
+// NewManagerWithEnv returns a manager that injects the given
+// injected into the omp subprocess. Most callers wire this to
+// the keystore: every Spawn reads the current keys file and
+// passes them to the subprocess. nil means "no extras".
+func NewManagerWithEnv(ompBin string, env EnvProvider) *Manager {
+	m := NewManager(ompBin)
+	m.env = env
+	return m
+}
 
-// NewManagerWithFactory is used by tests.
+// NewManagerWithFactory is used by tests that want to swap the
+// SessionFactory for a stub. Not used in production.
 func NewManagerWithFactory(f SessionFactory) *Manager {
 	return &Manager{
 		sessions: make(map[string]*Session),
@@ -74,7 +93,17 @@ func (m *Manager) Create(ompCwd string) (*SessionRecord, error) {
 	}
 	m.mu.Unlock()
 
-	sess, err := m.factory.NewSession(Options{OpBin: m.resolveBin(), Cwd: ompCwd})
+	opts := Options{OpBin: m.resolveBin(), Cwd: ompCwd}
+	if m.env != nil {
+		// Best-effort: a keystore read failure shouldn't block
+		// session creation. omp will fall back to whatever
+		// happens to be in the api's env at the time (or fail
+		// to authenticate, which the user can see and fix).
+		if env, err := m.env.Env(); err == nil {
+			opts.Env = env
+		}
+	}
+	sess, err := m.factory.NewSession(opts)
 	if err != nil {
 		return nil, err
 	}

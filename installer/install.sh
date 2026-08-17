@@ -31,7 +31,7 @@
 #   /etc/systemd/system/roc-harness-{api,web}.service
 set -euo pipefail
 
-REPO="${ROCINANTE_REPO:-lucaspdude/rocinante-harness}"
+REPO=
 
 # Resolve the version: explicit env > latest release tag.
 VERSION="${ROCINANTE_VERSION:-}"
@@ -161,6 +161,28 @@ if [ "$GOOS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     grep -q '^PORT='                "$ENV_FILE" || echo "PORT=30178"               >> "$ENV_FILE"
   fi
 
+  # Forward known provider keys from the workspace's .env.local
+  # (if it exists) into the api's EnvironmentFile. The api
+  # never reads the key itself; it just inherits os.Environ() to
+  # the omp subprocess. We only forward known provider names to
+  # avoid leaking arbitrary secrets into a chmod 0600 root-owned
+  if [ -f "$SHARE_DIR/../../.env.local" ]; then
+    while IFS= read -r line; do
+      case "$line" in
+        ''|\#*) continue ;;           # skip blanks/comments
+        ANTHROPIC_API_KEY=*|OPENAI_API_KEY=*|GEMINI_API_KEY=*|OPENROUTER_API_KEY=*|MINIMAX_API_KEY=*)
+          name="${line%%=*}"
+          if ! grep -q "^${name}=" "$ENV_FILE" 2>/dev/null; then
+            echo ">> forwarding $name from .env.local"
+            echo "$line" >> "$ENV_FILE"
+          fi
+          ;;
+        *)
+          echo ">> ignoring $SHARE_DIR/../../.env.local line: $line" >&2
+          ;;
+      esac
+    done < "$SHARE_DIR/../../.env.local"
+  fi
   # No ProtectHome: the install path defaults to $HOME/.local/share,
   # which lives under /root when run as root and systemd's
   # ProtectHome=yes would refuse to exec /root/.local.
