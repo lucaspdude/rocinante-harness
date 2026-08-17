@@ -3,7 +3,6 @@ package omp
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 )
 
 // MetaResponse is the JSON body of /api/v1/meta.
@@ -12,54 +11,42 @@ type MetaResponse struct {
 	OmpVersion      string `json:"omp_version"`
 	ProtocolVersion int    `json:"protocol_version"`
 	OmpBin          string `json:"omp_bin"`
-	// Providers reports whether each provider's API key is set
-	// in the api's environment. The api doesn't read the key
-	// itself; it just inherits os.Environ() to the omp subprocess.
-	// We report the booleans so the web UI can render a checklist
-	// without ever handling the key.
+	// Providers reports whether each provider's API key is
+	// configured. A provider is "configured" when EITHER the
+	// matching env var is set in the api's process OR the
+	// keystore on disk has an entry for it. The actual key
+	// value is never returned — only the booleans.
 	Providers ProviderStatus `json:"providers"`
 }
 
-// ProviderStatus is the set of provider API keys the api
-// recognizes. Each field is true when the matching env var is
-// set to a non-empty value in the api process; otherwise false.
-// The key value is never copied into the JSON.
+// ProviderStatus is the set of providers the api recognizes.
+// Each field is true when the corresponding provider has a
+// configured key. The field name is the canonical provider id
+// (matches the keystore's ProviderName string).
 type ProviderStatus struct {
-	Anthropic        bool `json:"anthropic"`
-	OpenAI           bool `json:"openai"`
-	Gemini           bool `json:"gemini"`
-	OpenRouter       bool `json:"openrouter"`
-	MinimaxTokenPlan bool `json:"minimax_token_plan"`
+	Anthropic  bool `json:"anthropic"`
+	OpenAI     bool `json:"openai"`
+	Gemini     bool `json:"gemini"`
+	OpenRouter bool `json:"openrouter"`
+	Minimax    bool `json:"minimax"`
 }
 
-// envHas reports whether name is set in the api's environment
-// to a non-empty value. We use the result for the /api/v1/meta
-// "providers" checklist; the key value is never returned.
-func envHas(name string) bool {
-	return os.Getenv(name) != ""
-}
-
-// detectProviders returns the set of provider flags the web UI
-// shows in its "Providers" tab. The web UI can't read or write
-// the env vars itself; this is a read-only signal.
-func detectProviders() ProviderStatus {
-	return ProviderStatus{
-		Anthropic:        envHas("ANTHROPIC_API_KEY"),
-		OpenAI:           envHas("OPENAI_API_KEY"),
-		Gemini:           envHas("GEMINI_API_KEY"),
-		OpenRouter:       envHas("OPENROUTER_API_KEY"),
-		MinimaxTokenPlan: envHas("MINIMAX_TOKEN_PLAN_API_KEY"),
-	}
+// ProviderProbe is the dependency the meta handler needs to
+// answer the providers checklist. The router wires this from
+// the keystore + os.Environ(); tests can use a stub.
+type ProviderProbe interface {
+	IsConfigured(name string) bool
 }
 
 // NewMetaHandler returns the http.HandlerFunc for /api/v1/meta.
 // On success (omp_bin resolved), it returns 200. When the omp
 // binary cannot be resolved, it returns 503 with a stable error
 // code.
-func NewMetaHandler(loader Loader, apiVersion string) http.HandlerFunc {
+func NewMetaHandler(loader Loader, apiVersion string, probe ProviderProbe) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		bin := loader.OmpBin()
 		if bin == "" {
+			w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]string{
@@ -69,13 +56,20 @@ func NewMetaHandler(loader Loader, apiVersion string) http.HandlerFunc {
 			return
 		}
 		protocol, version := loader.OmpVersion()
+		status := ProviderStatus{
+			Anthropic:  probe.IsConfigured("anthropic"),
+			OpenAI:     probe.IsConfigured("openai"),
+			Gemini:     probe.IsConfigured("gemini"),
+			OpenRouter: probe.IsConfigured("openrouter"),
+			Minimax:    probe.IsConfigured("minimax"),
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(MetaResponse{
 			APIVersion:      apiVersion,
 			OmpVersion:      version,
 			ProtocolVersion: protocol,
 			OmpBin:          bin,
-			Providers:       detectProviders(),
+			Providers:       status,
 		})
 	}
 }

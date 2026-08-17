@@ -1,4 +1,3 @@
-// Package api is the HTTP router.
 package api
 
 import (
@@ -8,19 +7,21 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/health"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/keystore"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
 )
 
 // RouterDeps groups the runtime dependencies needed by the api.
 type RouterDeps struct {
-	MetaLoader  omp.Loader
-	Manager     *omp.Manager
-	APIVersion  string
-	Idempotency *middleware.IdempotencyCache
-	AuthState   *AuthState
-	AuthMW      func(http.Handler) http.Handler
-	Titles      *titleKey
-	ShareDir    string
+	MetaLoader   omp.Loader
+	Manager      *omp.Manager
+	APIVersion   string
+	Idempotency  *middleware.IdempotencyCache
+	AuthState    *AuthState
+	AuthMW       func(http.Handler) http.Handler
+	Titles       *titleKey
+	ShareDir     string
+	ProviderKeys *keystore.Store
 }
 
 // WrapHandler chains a middleware around an http.HandlerFunc,
@@ -34,11 +35,16 @@ func WrapHandler(mw func(http.Handler) http.Handler, h http.HandlerFunc) http.Ha
 // NewRouter returns a chi router wired with the v1 endpoints.
 func NewRouter(deps RouterDeps) http.Handler {
 	r := chi.NewRouter()
-
 	r.Get("/api/v1/healthz", health.Handler)
-	r.Get("/api/v1/meta", omp.NewMetaHandler(deps.MetaLoader, deps.APIVersion))
+	if deps.ProviderKeys != nil {
+		r.Get("/api/v1/meta", omp.NewMetaHandler(deps.MetaLoader, deps.APIVersion, &keystore.EnvProbe{Store: deps.ProviderKeys}))
+	} else {
+		// Backward compat: the meta handler is required when
+		// the keystore is missing. This branch is dead in
+		// production but keeps tests simple.
+		r.Get("/api/v1/meta", omp.NewMetaHandler(deps.MetaLoader, deps.APIVersion, &keystore.EnvProbe{}))
+	}
 	r.Get("/api/v1/onboarding/status", OnboardingStatus(deps.ShareDir, deps.APIVersion))
-
 	if deps.AuthState != nil {
 		idem := middleware.IdempotencyMiddleware(deps.Idempotency)
 		r.Post("/api/v1/login", WrapHandler(idem, LoginHandler(deps.AuthState)))
@@ -53,6 +59,13 @@ func NewRouter(deps RouterDeps) http.Handler {
 			r.Delete("/api/v1/devices/{id}", DeleteDeviceHandler(deps.AuthState))
 			r.Post("/api/v1/logout", LogoutHandler(deps.AuthState))
 			r.Post("/api/v1/pairing/init", PairingInitHandler(deps.AuthState))
+			if deps.ProviderKeys != nil {
+				ph := &ProvidersHandler{Store: deps.ProviderKeys}
+				r.Route("/api/v1/providers", func(r chi.Router) {
+					r.Post("/{name}/key", ph.ServeHTTP)
+					r.Delete("/{name}/key", ph.ServeHTTP)
+				})
+			}
 		})
 	}
 
