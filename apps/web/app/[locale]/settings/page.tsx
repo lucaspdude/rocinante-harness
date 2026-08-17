@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useT, useI18n } from "../../../lib/i18n";
 import { api } from "../../../lib/api/client";
 import { tokenStore } from "../../../lib/auth/token-store";
+import { ProvidersPanel } from "../../../lib/providers/ProvidersPanel";
 import {
   SUPPORTED_LOCALES,
   type Locale,
@@ -17,7 +18,7 @@ interface Device {
   last_seen_at: string;
 }
 
-type Tab = "general" | "account" | "devices";
+type Tab = "general" | "providers" | "account" | "devices";
 
 export default function SettingsPage() {
   const t = useT();
@@ -44,7 +45,8 @@ export default function SettingsPage() {
     setTheme(next);
     if (typeof window !== "undefined") {
       window.localStorage.setItem("rh-theme", next);
-      document.documentElement.dataset.theme = next;
+      document.documentElement.dataset.theme =
+        next === "system" ? "" : next;
     }
   }
 
@@ -53,7 +55,12 @@ export default function SettingsPage() {
   }
 
   async function logout() {
-    await api.post("/api/v1/logout", {}).catch(() => {});
+    try {
+      await api.post("/api/v1/logout");
+    } catch {
+      // Even if the api rejects (e.g. token already expired),
+      // drop the local token and bounce to the login page.
+    }
     await tokenStore.clear();
     window.location.href = `/${i18n.locale}/login`;
   }
@@ -69,6 +76,13 @@ export default function SettingsPage() {
           onClick={() => setTab("general")}
         >
           {t("settings.general")}
+        </button>
+        <button
+          type="button"
+          className={`rh-tab ${tab === "providers" ? "rh-tab-active" : ""}`}
+          onClick={() => setTab("providers")}
+        >
+          {t("providers.title")}
         </button>
         <button
           type="button"
@@ -124,6 +138,8 @@ export default function SettingsPage() {
           </div>
         </section>
       )}
+
+      {tab === "providers" && <ProvidersPanel />}
 
       {tab === "account" && (
         <section className="rh-card flex flex-col gap-4">
