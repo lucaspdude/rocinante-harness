@@ -18,6 +18,7 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/catalog"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/envconfig"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/keystore"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
@@ -133,6 +134,10 @@ func main() {
 					OMPPath:   resolvedBin,
 					CmdFactory: api.OsExec,
 				},
+				ModelsCatalog: api.NewModelsCatalogHandler(
+					catalog.NewModelsDevCatalog(),
+					api.NewStaticLoginProviders(&keystore.EnvProbe{Store: keystoreStore}),
+				),
 			}),
 		),
 	))
@@ -145,8 +150,6 @@ func main() {
 		}
 		mux.Handle("/api/v1/ssh/", middleware.TLSHandler(sshHandler.Routes()))
 	}
-
-	// The api always binds to loopback. The web server (which is
 	// the only thing that talks to it) reaches us via the Next.js
 	// rewrite on the same host. Public access is delegated to
 	// whatever fronts the web server (Caddy, Cloudflare, a LAN IP

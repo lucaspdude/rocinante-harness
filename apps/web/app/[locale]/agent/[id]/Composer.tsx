@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { ModelPicker } from "../../../../lib/models/ModelPicker";
 
 interface ComposerProps {
   busy: boolean;
-  onSend: (text: string) => void;
+  onSend: (text: string, modelId?: string) => void;
   onAbort: () => void;
   placeholder: string;
   sendLabel: string;
   stopLabel: string;
+  defaultModelId?: string;
 }
 
 export function Composer({
@@ -18,15 +20,18 @@ export function Composer({
   placeholder,
   sendLabel,
   stopLabel,
+  defaultModelId,
 }: ComposerProps) {
   const [text, setText] = useState("");
+  const [modelId, setModelId] = useState(defaultModelId ?? "");
   function submit() {
     if (text.trim() === "") return;
-    onSend(text);
+    onSend(text, modelId || undefined);
     setText("");
   }
   return (
     <div className="flex flex-col gap-2">
+      <ModelPicker value={modelId} onChange={setModelId} />
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}

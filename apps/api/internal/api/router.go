@@ -13,16 +13,17 @@ import (
 
 // RouterDeps groups the runtime dependencies needed by the api.
 type RouterDeps struct {
-	MetaLoader  omp.Loader
-	Manager     *omp.Manager
-	APIVersion  string
-	Idempotency *middleware.IdempotencyCache
-	AuthState   *AuthState
-	AuthMW      func(http.Handler) http.Handler
-	Titles      *titleKey
-	ShareDir    string
-	ProviderKeys *keystore.Store
+	MetaLoader    omp.Loader
+	Manager       *omp.Manager
+	APIVersion    string
+	Idempotency   *middleware.IdempotencyCache
+	AuthState     *AuthState
+	AuthMW        func(http.Handler) http.Handler
+	Titles        *titleKey
+	ShareDir      string
+	ProviderKeys  *keystore.Store
 	LoginHandlers *LoginHandlers
+	ModelsCatalog *ModelsCatalogHandler
 }
 
 // WrapHandler chains a middleware around an http.HandlerFunc,
@@ -50,7 +51,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		})
 	}
 
-	// PR-01: /api/v1/login/* public routes (5 of them).
+	// PR-01: /api/v1/login/* public routes.
 	if deps.LoginHandlers != nil {
 		h := deps.LoginHandlers
 		if h.Jobs == nil {
@@ -64,6 +65,11 @@ func NewRouter(deps RouterDeps) http.Handler {
 		r.Get("/api/v1/login/{jobId}/stream", h.LoginStreamHandler)
 		r.Post("/api/v1/login/{jobId}/ack", h.LoginAckHandler)
 		r.Get("/api/v1/login/{jobId}/status", h.LoginStatusHandler)
+	}
+
+	// PR-02: public models.dev catalog.
+	if deps.ModelsCatalog != nil {
+		r.Get("/api/v1/models/catalog", deps.ModelsCatalog.ServeHTTP)
 	}
 
 	if deps.AuthState != nil {
