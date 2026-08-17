@@ -127,6 +127,12 @@ func main() {
 				AuthMW:       authMW,
 				ShareDir:     effectiveShareDir,
 				ProviderKeys: keystoreStore,
+				LoginHandlers: &api.LoginHandlers{
+					Providers: api.NewLoginProvidersCache(api.NewStaticLoginProviders(&keystore.EnvProbe{Store: keystoreStore})),
+					Jobs:      api.NewLoginJobs(),
+					OMPPath:   resolvedBin,
+					CmdFactory: api.OsExec,
+				},
 			}),
 		),
 	))

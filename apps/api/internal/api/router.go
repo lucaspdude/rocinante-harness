@@ -13,61 +13,31 @@ import (
 
 // RouterDeps groups the runtime dependencies needed by the api.
 type RouterDeps struct {
-	MetaLoader   omp.Loader
-	Manager      *omp.Manager
-	APIVersion   string
-	Idempotency  *middleware.IdempotencyCache
-	AuthState    *AuthState
-	AuthMW       func(http.Handler) http.Handler
-	Titles       *titleKey
-	ShareDir     string
+	MetaLoader  omp.Loader
+	Manager     *omp.Manager
+	APIVersion  string
+	Idempotency *middleware.IdempotencyCache
+	AuthState   *AuthState
+	AuthMW      func(http.Handler) http.Handler
+	Titles      *titleKey
+	ShareDir    string
 	ProviderKeys *keystore.Store
+	LoginHandlers *LoginHandlers
 }
 
 // WrapHandler chains a middleware around an http.HandlerFunc,
 // returning an http.HandlerFunc so it fits chi's strict signatures.
 func WrapHandler(mw func(http.Handler) http.Handler, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		mw(h).ServeHTTP(w, r)
+		mw(http.HandlerFunc(h)).ServeHTTP(w, r)
 	}
 }
 
 // NewRouter returns a chi router wired with the v1 endpoints.
-//
-// Route visibility (post v0.6.5):
-//
-//   Public (no auth):
-//     GET  /api/v1/healthz
-//     GET  /api/v1/meta                       (booleans only)
-//     GET  /api/v1/onboarding/status         (file presence only)
-//     POST /api/v1/onboarding/init           (creates .ed25519)
-//     POST /api/v1/providers/{name}/key     (writes the keystore)
-//     DELETE /api/v1/providers/{name}/key
-//     POST /api/v1/login / refresh / pairing/redeem
-//
-//   Authenticated:
-//     GET    /api/v1/devices
-//     DELETE /api/v1/devices/{id}
-//     POST   /api/v1/logout
-//     POST   /api/v1/pairing/init
-//     POST   /api/v1/sessions/  (and all /api/v1/sessions/{id}/*)
-//
-// The provider key routes are public because the onboarding
-// wizard needs to set a key BEFORE the api has any auth state.
-// After onboarding the same routes stay public — the keystore
-// is global, not per-user, so there's no auth boundary to
-// layer on top.
 func NewRouter(deps RouterDeps) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/api/v1/healthz", health.Handler)
-	if deps.ProviderKeys != nil {
-		r.Get("/api/v1/meta", omp.NewMetaHandler(deps.MetaLoader, deps.APIVersion, &keystore.EnvProbe{Store: deps.ProviderKeys}))
-	} else {
-		// Backward compat: the meta handler is required when
-		// the keystore is missing. This branch is dead in
-		// production but keeps tests simple.
-		r.Get("/api/v1/meta", omp.NewMetaHandler(deps.MetaLoader, deps.APIVersion, &keystore.EnvProbe{}))
-	}
+	r.Get("/api/v1/meta", deps.metaHandler())
 	r.Get("/api/v1/onboarding/status", OnboardingStatus(deps.ShareDir, deps.APIVersion))
 	if deps.ShareDir != "" {
 		r.Post("/api/v1/onboarding/init", OnboardingInit(deps.ShareDir))
@@ -78,6 +48,22 @@ func NewRouter(deps RouterDeps) http.Handler {
 			r.Post("/{name}/key", ph.ServeHTTP)
 			r.Delete("/{name}/key", ph.ServeHTTP)
 		})
+	}
+
+	// PR-01: /api/v1/login/* public routes (5 of them).
+	if deps.LoginHandlers != nil {
+		h := deps.LoginHandlers
+		if h.Jobs == nil {
+			h.Jobs = NewLoginJobs()
+		}
+		if h.CmdFactory == nil {
+			h.CmdFactory = OsExec
+		}
+		r.Get("/api/v1/login/providers", h.LoginProvidersHandler)
+		r.Post("/api/v1/login/start/{provider}", WrapHandler(middleware.IdempotencyMiddleware(deps.Idempotency), h.LoginStartHandler))
+		r.Get("/api/v1/login/{jobId}/stream", h.LoginStreamHandler)
+		r.Post("/api/v1/login/{jobId}/ack", h.LoginAckHandler)
+		r.Get("/api/v1/login/{jobId}/status", h.LoginStatusHandler)
 	}
 
 	if deps.AuthState != nil {
@@ -115,4 +101,23 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 	_ = auth.ErrPassphraseMismatch
 	return r
+}
+
+// metaHandler returns the /api/v1/meta http.Handler.
+func (d RouterDeps) metaHandler() http.HandlerFunc {
+	var rows []omp.MetaProviderInfo
+	if d.LoginHandlers != nil && d.LoginHandlers.Providers != nil {
+		for _, p := range d.LoginHandlers.Providers.Snapshot() {
+			rows = append(rows, omp.MetaProviderInfo{
+				ID:            p.ID,
+				Name:          p.Name,
+				Auth:          p.Auth,
+				Available:     p.Available,
+				Authenticated: p.Authenticated,
+				EnvVar:        p.EnvVar,
+				HelpURL:       p.HelpURL,
+			})
+		}
+	}
+	return omp.NewMetaHandler(d.MetaLoader, d.APIVersion, rows)
 }
