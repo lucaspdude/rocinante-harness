@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useT } from "../../../lib/i18n";
+import { useT, useLocalizedPath } from "../../../lib/i18n";
 import { api } from "../../../lib/api/client";
 
 interface SessionGroup {
@@ -16,29 +16,45 @@ interface SessionGroup {
 
 export function Sidebar({ activeId }: { activeId: string }) {
   const t = useT();
+  const lp = useLocalizedPath();
   const [groups, setGroups] = useState<SessionGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  function reload() {
     api
       .get<{ groups: SessionGroup[] }>("/api/v1/sessions")
-      .then((data) => {
-        if (!cancelled) setGroups(data.groups ?? []);
-      })
+      .then((data) => setGroups(data.groups ?? []))
       .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    reload();
   }, []);
 
   async function newSession() {
-    const res = await api.post<{ id: string }>("/api/v1/sessions", {});
-    if (res?.id) window.location.href = `../${res.id}`;
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await api.post<{ id: string }>("/api/v1/sessions", {
+        json: { omp_cwd: "/tmp" },
+      });
+      if (res?.id) {
+        window.location.href = lp(`/agent/${res.id}`);
+      }
+    } catch {
+      // The chat page renders an error banner; the sidebar
+      // doesn't need its own copy.
+    } finally {
+      setBusy(false);
+    }
   }
+
+  const totalSessions = groups.reduce(
+    (n, g) => n + g.sessions.length,
+    0
+  );
 
   return (
     <aside className="w-60 border-r border-[var(--color-border)] bg-[var(--color-bg-elevated)] flex flex-col h-full">
@@ -49,10 +65,12 @@ export function Sidebar({ activeId }: { activeId: string }) {
         <button
           type="button"
           onClick={newSession}
-          className="text-xs rh-button-ghost px-2 py-1"
+          disabled={busy}
+          className="text-xs rh-button-ghost px-2 py-1 disabled:opacity-50"
           title={t("sidebar.newSession")}
+          aria-label={t("sidebar.newSession")}
         >
-          +
+          {busy ? "…" : "+"}
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-2">
@@ -60,10 +78,20 @@ export function Sidebar({ activeId }: { activeId: string }) {
           <p className="text-xs text-[var(--color-fg-subtle)] px-2">
             {t("sidebar.loading")}
           </p>
-        ) : groups.length === 0 ? (
-          <p className="text-xs text-[var(--color-fg-subtle)] px-2">
-            {t("sidebar.empty")}
-          </p>
+        ) : totalSessions === 0 ? (
+          <div className="flex flex-col items-center gap-2 px-3 py-6 text-center">
+            <p className="text-xs text-[var(--color-fg-subtle)]">
+              {t("sidebar.empty")}
+            </p>
+            <button
+              type="button"
+              onClick={newSession}
+              disabled={busy}
+              className="text-xs rh-button-primary px-3 py-1 disabled:opacity-50"
+            >
+              {t("sidebar.newSession")}
+            </button>
+          </div>
         ) : (
           <ul className="flex flex-col gap-3">
             {groups.map((g) => (
@@ -85,7 +113,7 @@ export function Sidebar({ activeId }: { activeId: string }) {
                         }`}
                       >
                         <a
-                          href={`../${s.id}`}
+                          href={lp(`/agent/${s.id}`)}
                           className={`flex-1 truncate text-sm ${
                             active
                               ? "text-[var(--color-fg)]"
@@ -97,7 +125,9 @@ export function Sidebar({ activeId }: { activeId: string }) {
                         <button
                           type="button"
                           onClick={async () => {
-                            await api.delete(`/api/v1/sessions/${s.id}`);
+                            await api.delete(
+                              `/api/v1/sessions/${s.id}`
+                            );
                             setGroups((gs) =>
                               gs
                                 .map((group) => ({
@@ -106,7 +136,9 @@ export function Sidebar({ activeId }: { activeId: string }) {
                                     (x) => x.id !== s.id
                                   ),
                                 }))
-                                .filter((group) => group.sessions.length > 0)
+                                .filter(
+                                  (group) => group.sessions.length > 0
+                                )
                             );
                           }}
                           aria-label={t("sidebar.delete")}
