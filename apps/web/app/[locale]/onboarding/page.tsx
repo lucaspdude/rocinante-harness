@@ -3,19 +3,23 @@
 // Onboarding has 2 steps now:
 //
 //   1. Passphrase + locale (sets up the api's auth)
-//   2. Provider credentials (informational; the api can't store
-//      the keys, so this step explains where to put them and
-//      shows the live checklist of what's already set)
+//   2. Provider credentials (informational; the api can store
+//      the keys via the keystore + form, so this step helps
+//      the user wire up at least one provider)
 //
 // Step 2 is skippable: many users will want to finish setting
 // up the api first, then come back to providers later. The
-// "Skip for now" button jumps to /login. After step 2, the
-// user lands on /login as before.
+// "Continue to sign in" link jumps to /login. After step 2,
+// the user lands on /login as before.
+//
+// A StepDots indicator at the top of each card shows the user
+// where they are in the flow.
 
 import { useEffect, useState } from "react";
 import { useT, useLocalizedPath } from "../../../lib/i18n";
 import { api } from "../../../lib/api/client";
 import { ProvidersPanel } from "../../../lib/providers/ProvidersPanel";
+import { StepDots } from "../../../lib/components/StepDots";
 
 interface OnboardingStatus {
   initialized: boolean;
@@ -24,6 +28,8 @@ interface OnboardingStatus {
 }
 
 type Step = "passphrase" | "providers";
+
+const STEP_NAMES = ["passphrase", "providers"] as const;
 
 export default function OnboardingPage() {
   const t = useT();
@@ -100,11 +106,32 @@ export default function OnboardingPage() {
   }
 
   if (step === "providers") {
+    const stepLabel = (i: number, _n: number, name: string) => {
+      const map: Record<string, string> = {
+        passphrase: t("onboarding.passphrase"),
+        providers: t("providers.title"),
+      };
+      return `${i + 1}. ${map[name] ?? name}`;
+    };
     return (
       <main className="min-h-screen flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-2xl">
+          <StepDots
+            steps={STEP_NAMES.map((s) =>
+              s === "passphrase" ? t("onboarding.passphrase") : t("providers.title")
+            )}
+            active={1}
+            stepLabel={stepLabel}
+          />
           <ProvidersPanel />
           <div className="mt-6 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setStep("passphrase")}
+              className="rh-button-ghost"
+            >
+              ← {t("onboarding.passphrase")}
+            </button>
             <a
               href={lp("/login")}
               className="rh-button-primary inline-block"
@@ -117,9 +144,24 @@ export default function OnboardingPage() {
     );
   }
 
+  const stepLabel = (i: number, _n: number, name: string) => {
+    const map: Record<string, string> = {
+      passphrase: t("onboarding.passphrase"),
+      providers: t("providers.title"),
+    };
+    return `${i + 1}. ${map[name] ?? name}`;
+  };
+
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-md">
+        <StepDots
+          steps={STEP_NAMES.map((s) =>
+            s === "passphrase" ? t("onboarding.passphrase") : t("providers.title")
+          )}
+          active={0}
+          stepLabel={stepLabel}
+        />
         <div className="rh-card">
           <h1 className="text-2xl font-semibold mb-2">
             {t("onboarding.title")}
