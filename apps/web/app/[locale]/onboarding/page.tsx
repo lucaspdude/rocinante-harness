@@ -1,21 +1,35 @@
 "use client";
 
-// Onboarding has 2 steps now:
+// Onboarding has 3 steps, in this order:
 //
-//   1. Passphrase + locale (sets up the api's auth)
-//   2. Provider credentials (informational; the api can store
-//      the keys via the keystore + form, so this step helps
-//      the user wire up at least one provider)
+//   1. Provider key (gating) — the user pastes at least one
+//      provider's API key. Without a key, omp can't talk to a
+//      model, so no other step makes sense. This step calls
+//      POST /api/v1/providers/{name}/key (public, no auth) and
+//      the api writes the value to its keystore. The api
+//      process does NOT need to restart for the keystore write
+//      to take effect — the manager reads the file on every
+//      session spawn.
 //
-// Step 2 is skippable: many users will want to finish setting
-// up the api first, then come back to providers later. The
-// "Continue to sign in" link jumps to /login. After step 2,
-// the user lands on /login as before.
+//   2. Passphrase + locale — calls POST /api/v1/onboarding/init
+//      to create .ed25519 + .ed25519.bak + the SQLite schema.
+//      The api then self-restarts (250 ms goroutine) so the
+//      newly written key file is loaded on the next start.
 //
-// A StepDots indicator at the top of each card shows the user
-// where they are in the flow.
+//   3. Done — links to /login.
+//
+// Step 1 is mandatory: the "Continue" button stays disabled
+// until at least one provider shows the green "Configured"
+// dot. Step 2 stays disabled until the user has visited step
+// 1 (so a curious user who lands directly on /onboarding
+// can't skip past it).
+//
+// If the api's onboarding/status already reports initialized
+// (e.g. the installer pre-initialized the key), step 1
+// auto-marks the configured providers green and lets the
+// user advance without re-pasting keys.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useT, useLocalizedPath } from "../../../lib/i18n";
 import { api } from "../../../lib/api/client";
 import { ProvidersPanel } from "../../../lib/providers/ProvidersPanel";
@@ -27,9 +41,9 @@ interface OnboardingStatus {
   api_version: string;
 }
 
-type Step = "passphrase" | "providers";
+type Step = "providers" | "passphrase" | "done";
 
-const STEP_NAMES = ["passphrase", "providers"] as const;
+const STEP_KEYS = ["providers", "passphrase", "done"] as const;
 
 export default function OnboardingPage() {
   const t = useT();
@@ -40,7 +54,14 @@ export default function OnboardingPage() {
   const [locale, setLocale] = useState<"en-US" | "pt-BR">("en-US");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<Step>("passphrase");
+  const [step, setStep] = useState<Step>("providers");
+  // Whether at least one provider is currently configured.
+  // Tracked locally so the gate updates without a round-trip
+  // to /api/v1/meta on every keystore write.
+  const [providerCount, setProviderCount] = useState(0);
+  // After init, /api/v1/onboarding/status reports initialized=true.
+  // We cache that signal so step 3 renders without re-fetching.
+  const [initSucceeded, setInitSucceeded] = useState(false);
 
   useEffect(() => {
     api
@@ -55,7 +76,11 @@ export default function OnboardingPage() {
       );
   }, []);
 
-  async function submit() {
+  const stepIndex = useMemo(() => STEP_KEYS.indexOf(step), [step]);
+  const canAdvanceFromProviders = providerCount > 0;
+  const initialized = status?.initialized === true || initSucceeded;
+
+  async function submitPassphrase() {
     if (passphrase !== confirm) {
       setError("passphrases do not match");
       return;
@@ -76,12 +101,14 @@ export default function OnboardingPage() {
         setError(`init failed: ${res.status}`);
         return;
       }
-      setStep("providers");
+      setInitSucceeded(true);
+      setStep("done");
     } finally {
       setBusy(false);
     }
   }
 
+  // Loading state — api status not yet known.
   if (!status) {
     return (
       <main className="min-h-screen flex items-center justify-center px-4">
@@ -90,144 +117,201 @@ export default function OnboardingPage() {
     );
   }
 
-  if (status.initialized) {
+  // If the api is already initialized (e.g. installer pre-init'd
+  // the key, or the user is returning to an already-onboarded
+  // install), skip straight to the "Done" step. There's no
+  // point re-prompting for a passphrase we already have.
+  if (initialized && step !== "done" && !initSucceeded) {
     return (
-      <main className="min-h-screen flex items-center justify-center px-4">
-        <div className="rh-card text-center">
-          <h1 className="text-2xl font-semibold mb-3">
-            {t("onboarding.complete")}
-          </h1>
-          <a href={lp("/login")} className="rh-button-primary inline-block">
-            {t("onboarding.goLogin")}
-          </a>
+      <main className="min-h-screen flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-2xl">
+          <StepDots
+            steps={STEP_KEYS.map((s) => stepLabel(t, s))}
+            active={2}
+          />
+          <DoneCard
+            t={t}
+            lp={lp}
+          />
         </div>
       </main>
     );
   }
 
   if (step === "providers") {
-    const stepLabel = (i: number, _n: number, name: string) => {
-      const map: Record<string, string> = {
-        passphrase: t("onboarding.passphrase"),
-        providers: t("providers.title"),
-      };
-      return `${i + 1}. ${map[name] ?? name}`;
-    };
     return (
       <main className="min-h-screen flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-2xl">
           <StepDots
-            steps={STEP_NAMES.map((s) =>
-              s === "passphrase" ? t("onboarding.passphrase") : t("providers.title")
-            )}
-            active={1}
-            stepLabel={stepLabel}
+            steps={STEP_KEYS.map((s) => stepLabel(t, s))}
+            active={0}
           />
-          <ProvidersPanel />
-          <div className="mt-6 flex justify-end gap-3">
+          <h1 className="text-2xl font-semibold mb-1">
+            {t("onboarding.stepProviders.title")}
+          </h1>
+          <p className="text-[var(--color-fg-muted)] text-sm mb-4">
+            {t("onboarding.stepProviders.subtitle")}
+          </p>
+          <ProvidersPanel onConfiguredCountChange={setProviderCount} />
+          <div className="mt-6 flex items-center justify-between gap-3">
+            <p
+              className={
+                canAdvanceFromProviders
+                  ? "text-xs text-[var(--color-fg-muted)]"
+                  : "text-xs text-[var(--color-fg-muted)] italic"
+              }
+            >
+              {canAdvanceFromProviders
+                ? t("onboarding.alreadyConfiguredSkip")
+                : t("onboarding.gateNeedProvider")}
+            </p>
             <button
               type="button"
               onClick={() => setStep("passphrase")}
-              className="rh-button-ghost"
+              disabled={!canAdvanceFromProviders}
+              className="rh-button-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              ← {t("onboarding.passphrase")}
+              {t("onboarding.stepProviders.cta")} →
             </button>
-            <a
-              href={lp("/login")}
-              className="rh-button-primary inline-block"
-            >
-              {t("onboarding.goLogin")}
-            </a>
           </div>
         </div>
       </main>
     );
   }
 
-  const stepLabel = (i: number, _n: number, name: string) => {
-    const map: Record<string, string> = {
-      passphrase: t("onboarding.passphrase"),
-      providers: t("providers.title"),
-    };
-    return `${i + 1}. ${map[name] ?? name}`;
-  };
-
-  return (
-    <main className="min-h-screen flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        <StepDots
-          steps={STEP_NAMES.map((s) =>
-            s === "passphrase" ? t("onboarding.passphrase") : t("providers.title")
-          )}
-          active={0}
-          stepLabel={stepLabel}
-        />
-        <div className="rh-card">
-          <h1 className="text-2xl font-semibold mb-2">
-            {t("onboarding.title")}
+  if (step === "passphrase") {
+    return (
+      <main className="min-h-screen flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md">
+          <StepDots
+            steps={STEP_KEYS.map((s) => stepLabel(t, s))}
+            active={1}
+          />
+          <h1 className="text-2xl font-semibold mb-1">
+            {t("onboarding.stepPassphrase.title")}
           </h1>
-          <p className="text-[var(--color-fg-muted)] mb-6">
-            {t("onboarding.subtitle")}
+          <p className="text-[var(--color-fg-muted)] text-sm mb-6">
+            {t("onboarding.stepPassphrase.subtitle")}
           </p>
-          <div className="flex flex-col gap-4">
-            <div>
-              <label className="rh-label" htmlFor="onb-pass">
-                {t("onboarding.passphrase")}
-              </label>
-              <input
-                id="onb-pass"
-                type="password"
-                value={passphrase}
-                onChange={(e) => setPassphrase(e.target.value)}
-                autoComplete="new-password"
-                className="rh-input"
-              />
+          <div className="rh-card">
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className="rh-label" htmlFor="onb-pass">
+                  {t("onboarding.passphrase")}
+                </label>
+                <input
+                  id="onb-pass"
+                  type="password"
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                  autoComplete="new-password"
+                  className="rh-input"
+                />
+              </div>
+              <div>
+                <label className="rh-label" htmlFor="onb-confirm">
+                  {t("onboarding.confirm")}
+                </label>
+                <input
+                  id="onb-confirm"
+                  type="password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  autoComplete="new-password"
+                  className="rh-input"
+                />
+              </div>
+              <div>
+                <label className="rh-label" htmlFor="onb-locale">
+                  {t("onboarding.locale")}
+                </label>
+                <select
+                  id="onb-locale"
+                  value={locale}
+                  onChange={(e) =>
+                    setLocale(e.target.value as "en-US" | "pt-BR")
+                  }
+                  className="rh-input"
+                >
+                  <option value="en-US">en-US</option>
+                  <option value="pt-BR">pt-BR</option>
+                </select>
+              </div>
+              {error && (
+                <p role="alert" className="rh-error">
+                  {error}
+                </p>
+              )}
             </div>
-            <div>
-              <label className="rh-label" htmlFor="onb-confirm">
-                {t("onboarding.confirm")}
-              </label>
-              <input
-                id="onb-confirm"
-                type="password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                autoComplete="new-password"
-                className="rh-input"
-              />
-            </div>
-            <div>
-              <label className="rh-label" htmlFor="onb-locale">
-                {t("onboarding.locale")}
-              </label>
-              <select
-                id="onb-locale"
-                value={locale}
-                onChange={(e) =>
-                  setLocale(e.target.value as "en-US" | "pt-BR")
-                }
-                className="rh-input"
-              >
-                <option value="en-US">en-US</option>
-                <option value="pt-BR">pt-BR</option>
-              </select>
-            </div>
-            {error && (
-              <p role="alert" className="rh-error">
-                {error}
-              </p>
-            )}
+          </div>
+          <div className="mt-6 flex items-center justify-between gap-3">
             <button
               type="button"
-              onClick={submit}
+              onClick={() => setStep("providers")}
+              className="rh-button-ghost"
+            >
+              ← {t("providers.title")}
+            </button>
+            <button
+              type="button"
+              onClick={submitPassphrase}
               disabled={busy}
               className="rh-button-primary"
             >
-              {t("onboarding.submit")}
+              {busy ? t("common.loading") : t("onboarding.submit")}
             </button>
           </div>
         </div>
+      </main>
+    );
+  }
+
+  // step === "done"
+  return (
+    <main className="min-h-screen flex items-center justify-center px-4 py-12">
+      <div className="w-full max-w-2xl">
+        <StepDots
+          steps={STEP_KEYS.map((s) => stepLabel(t, s))}
+          active={2}
+        />
+        <DoneCard t={t} lp={lp} />
       </div>
     </main>
+  );
+}
+
+function stepLabel(
+  t: (k: string) => string,
+  key: (typeof STEP_KEYS)[number]
+): string {
+  switch (key) {
+    case "providers":
+      return t("onboarding.stepProviders.title").replace(/^Step \d+\.\s*/, "");
+    case "passphrase":
+      return t("onboarding.stepPassphrase.title").replace(/^Step \d+\.\s*/, "");
+    case "done":
+      return t("onboarding.stepDone.title");
+  }
+}
+
+function DoneCard({
+  t,
+  lp,
+}: {
+  t: (k: string) => string;
+  lp: (p: string) => string;
+}) {
+  return (
+    <div className="rh-card text-center">
+      <h1 className="text-2xl font-semibold mb-3">
+        {t("onboarding.stepDone.title")}
+      </h1>
+      <p className="text-[var(--color-fg-muted)] mb-6">
+        {t("onboarding.stepDone.subtitle")}
+      </p>
+      <a href={lp("/login")} className="rh-button-primary inline-block">
+        {t("onboarding.goLogin")}
+      </a>
+    </div>
   );
 }
