@@ -16,6 +16,7 @@ interface I18nContext {
   locale: Locale;
   t: (key: string, vars?: Record<string, string | number>) => string;
   setLocale: (next: Locale) => void;
+  localizedPath: (path: string) => string;
 }
 
 const I18nContextImpl = createContext<I18nContext | null>(null);
@@ -38,6 +39,11 @@ export function I18nProvider({
     document.cookie = `rh-locale=${next}; path=/; max-age=31536000; samesite=lax`;
   }
 
+  function localizedPath(path: string): string {
+    if (!path.startsWith("/")) path = "/" + path;
+    return `/${locale}${path === "/" ? "" : path}`;
+  }
+
   function t(key: string, vars?: Record<string, string | number>) {
     const dict = dictionaries[locale] ?? dictionaries[DEFAULT_LOCALE];
     let value = dict[key];
@@ -53,7 +59,7 @@ export function I18nProvider({
   }
 
   return (
-    <I18nContextImpl.Provider value={{ locale, t, setLocale }}>
+    <I18nContextImpl.Provider value={{ locale, t, setLocale, localizedPath }}>
       {children}
     </I18nContextImpl.Provider>
   );
@@ -61,10 +67,22 @@ export function I18nProvider({
 
 export function useI18n(): I18nContext {
   const ctx = useContext(I18nContextImpl);
-  if (!ctx) {
+  if (ctx === null) {
     throw new Error("useI18n must be used inside I18nProvider");
   }
   return ctx;
+}
+
+export function useLocale(): Locale {
+  return useI18n().locale;
+}
+
+// Returns a function that turns a path relative to the locale
+// (e.g. "/login") into an absolute path with the locale prefix
+// (e.g. "/en-US/login"). Use this instead of hard-coding
+// `/${locale}` in JSX so a future locale switch just works.
+export function useLocalizedPath(): (path: string) => string {
+  return useI18n().localizedPath;
 }
 
 export function useT() {
