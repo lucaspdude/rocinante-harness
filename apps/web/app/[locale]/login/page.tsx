@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useT } from "../../../lib/i18n";
+import { useT, useLocalizedPath } from "../../../lib/i18n";
 import { api } from "../../../lib/api/client";
 import { tokenStore } from "../../../lib/auth/token-store";
 
@@ -13,6 +13,7 @@ interface LoginResponse {
 
 export default function LoginPage() {
   const t = useT();
+  const lp = useLocalizedPath();
   const [passphrase, setPassphrase] = useState("");
   const [deviceName, setDeviceName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +37,10 @@ export default function LoginPage() {
           refresh_token: res.refresh,
           device_id: res.device_id,
         });
-        window.location.href = "/";
+        // Send the user straight into a new chat session. The
+        // home page is just a landing; logging in implies they
+        // want to use the product.
+        window.location.href = lp("/agent/new");
       }
     } catch (err: unknown) {
       const code = (err as { body?: { code?: string } }).body?.code;

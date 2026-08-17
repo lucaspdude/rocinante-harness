@@ -39,6 +39,13 @@ export class TokenStore {
     }
   }
 
+  // Synchronous peek — useful for SSR-friendly checks (does the
+  // user have any token at all?). Returns false during SSR.
+  peek(): boolean {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(KEY) !== null;
+  }
+
   async clear(): Promise<void> {
     if (typeof window === "undefined") return;
     window.localStorage.removeItem(KEY);
