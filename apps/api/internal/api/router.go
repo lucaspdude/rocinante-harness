@@ -33,6 +33,30 @@ func WrapHandler(mw func(http.Handler) http.Handler, h http.HandlerFunc) http.Ha
 }
 
 // NewRouter returns a chi router wired with the v1 endpoints.
+//
+// Route visibility (post v0.6.5):
+//
+//   Public (no auth):
+//     GET  /api/v1/healthz
+//     GET  /api/v1/meta                       (booleans only)
+//     GET  /api/v1/onboarding/status         (file presence only)
+//     POST /api/v1/onboarding/init           (creates .ed25519)
+//     POST /api/v1/providers/{name}/key     (writes the keystore)
+//     DELETE /api/v1/providers/{name}/key
+//     POST /api/v1/login / refresh / pairing/redeem
+//
+//   Authenticated:
+//     GET    /api/v1/devices
+//     DELETE /api/v1/devices/{id}
+//     POST   /api/v1/logout
+//     POST   /api/v1/pairing/init
+//     POST   /api/v1/sessions/  (and all /api/v1/sessions/{id}/*)
+//
+// The provider key routes are public because the onboarding
+// wizard needs to set a key BEFORE the api has any auth state.
+// After onboarding the same routes stay public — the keystore
+// is global, not per-user, so there's no auth boundary to
+// layer on top.
 func NewRouter(deps RouterDeps) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/api/v1/healthz", health.Handler)
@@ -47,6 +71,13 @@ func NewRouter(deps RouterDeps) http.Handler {
 	r.Get("/api/v1/onboarding/status", OnboardingStatus(deps.ShareDir, deps.APIVersion))
 	if deps.ShareDir != "" {
 		r.Post("/api/v1/onboarding/init", OnboardingInit(deps.ShareDir))
+	}
+	if deps.ProviderKeys != nil {
+		ph := &ProvidersHandler{Store: deps.ProviderKeys}
+		r.Route("/api/v1/providers", func(r chi.Router) {
+			r.Post("/{name}/key", ph.ServeHTTP)
+			r.Delete("/{name}/key", ph.ServeHTTP)
+		})
 	}
 
 	if deps.AuthState != nil {
@@ -63,13 +94,6 @@ func NewRouter(deps RouterDeps) http.Handler {
 			r.Delete("/api/v1/devices/{id}", DeleteDeviceHandler(deps.AuthState))
 			r.Post("/api/v1/logout", LogoutHandler(deps.AuthState))
 			r.Post("/api/v1/pairing/init", PairingInitHandler(deps.AuthState))
-			if deps.ProviderKeys != nil {
-				ph := &ProvidersHandler{Store: deps.ProviderKeys}
-				r.Route("/api/v1/providers", func(r chi.Router) {
-					r.Post("/{name}/key", ph.ServeHTTP)
-					r.Delete("/{name}/key", ph.ServeHTTP)
-				})
-			}
 		})
 	}
 

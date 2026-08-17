@@ -2,18 +2,23 @@
 
 // Reusable Providers panel. Used by:
 //   - Settings → Providers tab
-//   - Onboarding step 2 (after passphrase)
+//   - Onboarding step 1 (gate before passphrase init)
 //
 // Renders a checklist of the 5 supported providers, indicating
-// which ones are configured (env var set in the api process).
-// Below the checklist, each provider has an inline form: the
-// user pastes their API key, clicks Save, and the api writes it
-// to its keystore (chmod 0600 file on the api's share dir). The
-// api re-reads the keystore on every omp session spawn, so the
-// new key is picked up by the next prompt without any process
+// which ones are configured (key in the keystore on disk). Below
+// the checklist, each provider has an inline form: the user
+// pastes their API key, clicks Save, and the api writes it to
+// its keystore (chmod 0600 file on the api's share dir). The api
+// re-reads the keystore on every omp session spawn, so the new
+// key is picked up by the next prompt without any process
 // restart. Existing keys can be removed with a Clear button.
+//
+// The optional onConfiguredCountChange callback fires with the
+// current number of configured providers. The onboarding page
+// uses it to enable the "Continue" button only after at least
+// one key is set; the Settings page doesn't pass a callback.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import {
   PROVIDERS,
@@ -22,13 +27,28 @@ import {
   type ProviderStatus,
 } from "./useProviders";
 
-export function ProvidersPanel() {
+export function ProvidersPanel({
+  onConfiguredCountChange,
+}: {
+  onConfiguredCountChange?: (count: number) => void;
+} = {}) {
   const t = useT();
   const { status, error, reload, saveKey, deleteKey, saving } =
     useProviders(5000);
   const [editing, setEditing] = useState<ProviderDef["key"] | null>(null);
   const [draft, setDraft] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
+
+  // Count configured providers and notify the parent. Recompute
+  // on every status change (initial fetch, polling tick, or
+  // optimistic update from saveKey/deleteKey).
+  useEffect(() => {
+    if (!onConfiguredCountChange) return;
+    const n = status
+      ? PROVIDERS.filter((p) => status[p.key]).length
+      : 0;
+    onConfiguredCountChange(n);
+  }, [status, onConfiguredCountChange]);
 
   function startEdit(p: ProviderDef) {
     setEditing(p.key);
@@ -72,13 +92,6 @@ export function ProvidersPanel() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h2 className="text-lg font-medium mb-1">{t("providers.title")}</h2>
-        <p className="text-sm text-[var(--color-fg-muted)]">
-          {t("providers.subtitle")}
-        </p>
-      </div>
-
       <div className="rh-card">
         <h3 className="text-sm font-medium mb-3">
           {t("providers.checklist")}
