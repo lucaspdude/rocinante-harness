@@ -19,6 +19,7 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/envconfig"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/keystore"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
 	sshpkg "github.com/lucaspdude/rocinante-harness/apps/api/internal/ssh"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/storage"
@@ -77,7 +78,8 @@ func main() {
 	}
 
 	loader, resolvedBin := resolveOmp(envconfig.OmpBin())
-	manager := omp.NewManager(resolvedBin)
+	keystoreStore := keystore.New(effectiveShareDir)
+	manager := omp.NewManagerWithEnv(resolvedBin, keystoreStore)
 	idem := middleware.NewIdempotencyCache(2048)
 
 	dbPathResolved := filepath.Join(effectiveShareDir, "roc-harness.db")
@@ -117,13 +119,14 @@ func main() {
 	mux.Handle("/", middleware.TLSHandler(
 		middleware.CORSHandler(middleware.CORSConfig{})(
 			api.NewRouter(api.RouterDeps{
-				MetaLoader:  loader,
-				Manager:     manager,
-				APIVersion:  apiVersion,
-				Idempotency: idem,
-				AuthState:   authState,
-				AuthMW:      authMW,
-				ShareDir:    effectiveShareDir,
+				MetaLoader:   loader,
+				Manager:      manager,
+				APIVersion:   apiVersion,
+				Idempotency:  idem,
+				AuthState:    authState,
+				AuthMW:       authMW,
+				ShareDir:     effectiveShareDir,
+				ProviderKeys: keystoreStore,
 			}),
 		),
 	))

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -19,6 +20,13 @@ type Options struct {
 	OmpCwd string
 	Cwd    string
 	Model  string
+	// Env, if non-empty, is appended to the api's own
+	// os.Environ() and passed to the omp subprocess. The api
+	// uses this to inject provider keys from the keystore on
+	// every spawn — the subprocess sees the keys without the
+	// api process having to be restarted. The values are
+	// expected to be in "KEY=VALUE" form, one per entry.
+	Env []string
 }
 
 // Session is a live stdio session with an omp subprocess.
@@ -100,6 +108,15 @@ func Spawn(ctx context.Context, opts Options) (*Session, error) {
 	cmd := exec.CommandContext(ctx, opts.OpBin, "--mode", "rpc-ui")
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
+	}
+	if len(opts.Env) > 0 {
+		// Start from the api's own env and append the
+		// keystore-supplied entries. Letting the api's env
+		// through means omp still sees PATH, HOME, and any
+		// other infra the api was started with; the
+		// append overrides win for any duplicate keys
+		// (keystore is the source of truth for providers).
+		cmd.Env = append(os.Environ(), opts.Env...)
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
