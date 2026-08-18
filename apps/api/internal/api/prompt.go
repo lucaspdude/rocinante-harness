@@ -11,6 +11,7 @@ import (
 type promptRequest struct {
 	Text          string `json:"text"`
 	Model         string `json:"model,omitempty"`
+	ModelID       string `json:"modelId,omitempty"`
 	ModelRole     string `json:"model_role,omitempty"`
 	ThinkingLevel string `json:"thinking_level,omitempty"`
 }
@@ -43,7 +44,7 @@ func PromptHandler(m *omp.Manager) http.HandlerFunc {
 		clientID := newClientRequestID()
 		frame, err := omp.BuildPromptFrame(omp.PromptRequest{
 			Text:          req.Text,
-			Model:         req.Model,
+			Model:         cmpOr(req.Model, req.ModelID),
 			ModelRole:     req.ModelRole,
 			ThinkingLevel: req.ThinkingLevel,
 		}, clientID)
@@ -61,4 +62,11 @@ func PromptHandler(m *omp.Manager) http.HandlerFunc {
 			CacheState:      "best-effort",
 		})
 	}
+}
+
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

@@ -106,6 +106,8 @@ export const api = {
     apiFetch<T>(path, { ...opts, method: "POST" }),
   put: <T = unknown>(path: string, opts?: ApiOptions) =>
     apiFetch<T>(path, { ...opts, method: "PUT" }),
+  patch: <T = unknown>(path: string, opts?: ApiOptions) =>
+    apiFetch<T>(path, { ...opts, method: "PATCH" }),
   delete: <T = unknown>(path: string, opts?: ApiOptions) =>
     apiFetch<T>(path, { ...opts, method: "DELETE" }),
 };

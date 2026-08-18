@@ -1,57 +1,64 @@
-"use client"
+"use client";
 
 // Reusable Providers panel. Used by:
 //   - Settings → Providers tab
 //   - Onboarding step 1 (gate before passphrase init)
 //
-// Renders a checklist of the 5 supported providers, indicating
-// which ones are configured (key in the keystore on disk). Below
-// the checklist, each provider has an inline form: the user
-// pastes their API key, clicks Save, and the api writes it to
-// its keystore (chmod 0600 file on the api's share dir). The api
-// re-reads the keystore on every omp session spawn, so the new
-// key is picked up by the next prompt without any process
-// restart. Existing keys can be removed with a Clear button.
+// Renders the canonical provider list (from /api/v1/meta) with a
+// search box. Configured providers float to the top. Each one has
+// an inline form: the user pastes their API key, clicks Save, and
+// the api writes it to its keystore (chmod 0600 file on the api's
+// share dir). The api re-reads the keystore on every omp session
+// spawn, so the new key is picked up by the next prompt without
+// any process restart. Existing keys can be removed with a Clear
+// button.
 //
-// The optional onConfiguredCountChange callback fires with the
-// current number of configured providers. The onboarding page
-// uses it to enable the "Continue" button only after at least
-// one key is set; the Settings page doesn't pass a callback.
+// PR-01 reshape: providers are now a flat array of ProviderInfo
+// (id + name + auth + authenticated + help_url). The previous 5-
+// provider hardcoded list is gone.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useT } from "../i18n";
-import {
-  PROVIDERS,
-  useProviders,
-  type ProviderDef,
-  type ProviderStatus,
-} from "./useProviders";
+import { useProviders, type ProviderInfo } from "./useProviders";
 
 export function ProvidersPanel({
   onConfiguredCountChange,
 }: {
   onConfiguredCountChange?: (count: number) => void;
-} = {}) {
+}) {
   const t = useT();
-  const { status, error, reload, saveKey, deleteKey, saving } =
+  const { providers, error, reload, saveKey, deleteKey, saving } =
     useProviders(5000);
-  const [editing, setEditing] = useState<ProviderDef["key"] | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
-  // Count configured providers and notify the parent. Recompute
-  // on every status change (initial fetch, polling tick, or
-  // optimistic update from saveKey/deleteKey).
   useEffect(() => {
     if (!onConfiguredCountChange) return;
-    const n = status
-      ? PROVIDERS.filter((p) => status[p.key]).length
-      : 0;
-    onConfiguredCountChange(n);
-  }, [status, onConfiguredCountChange]);
+    onConfiguredCountChange(providers.filter((p) => p.authenticated).length);
+  }, [providers, onConfiguredCountChange]);
 
-  function startEdit(p: ProviderDef) {
-    setEditing(p.key);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = q
+      ? providers.filter(
+          (p) =>
+            p.id.toLowerCase().includes(q) ||
+            p.name.toLowerCase().includes(q) ||
+            (p.env_var ?? "").toLowerCase().includes(q)
+        )
+      : providers;
+    return [...list].sort((a, b) => {
+      if (a.authenticated !== b.authenticated) {
+        return a.authenticated ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }, [providers, search]);
+
+  function startEdit(p: ProviderInfo) {
+    setEditing(p.id);
     setDraft("");
     setLocalError(null);
   }
@@ -62,28 +69,26 @@ export function ProvidersPanel({
     setLocalError(null);
   }
 
-  async function save(p: ProviderDef) {
+  async function save(p: ProviderInfo) {
     if (!draft.trim()) {
       setLocalError("empty");
       return;
     }
     setLocalError(null);
     try {
-      await saveKey(p.key, draft.trim());
+      await saveKey(p.id, draft.trim());
       setEditing(null);
       setDraft("");
-      // The 5 s poll will also catch up, but a manual reload
-      // gives instant feedback in the UI.
       reload();
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  async function clear(p: ProviderDef) {
+  async function clear(p: ProviderInfo) {
     setLocalError(null);
     try {
-      await deleteKey(p.key);
+      await deleteKey(p.id);
       reload();
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : String(e));
@@ -101,23 +106,36 @@ export function ProvidersPanel({
             {localError ?? error}
           </p>
         )}
-        <ul className="flex flex-col gap-3">
-          {PROVIDERS.map((p) => (
-            <ProviderRow
-              key={p.key}
-              p={p}
-              configured={status?.[p.key] ?? false}
-              editing={editing === p.key}
-              draft={draft}
-              onDraftChange={setDraft}
-              onStartEdit={() => startEdit(p)}
-              onCancel={cancelEdit}
-              onSave={() => save(p)}
-              onClear={() => clear(p)}
-              saving={saving === p.key}
-            />
-          ))}
-        </ul>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("providers.search")}
+          className="rh-input mb-3 text-sm"
+          aria-label={t("providers.search")}
+        />
+        {filtered.length === 0 ? (
+          <p className="text-sm text-[var(--color-fg-muted)]">
+            {t("providers.empty")}
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {filtered.map((p) => (
+              <ProviderRow
+                key={p.id}
+                p={p}
+                editing={editing === p.id}
+                draft={draft}
+                onDraftChange={setDraft}
+                onStartEdit={() => startEdit(p)}
+                onCancel={cancelEdit}
+                onSave={() => save(p)}
+                onClear={() => clear(p)}
+                saving={saving === p.id}
+              />
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="text-xs text-[var(--color-fg-muted)]">
@@ -129,7 +147,6 @@ export function ProvidersPanel({
 
 function ProviderRow({
   p,
-  configured,
   editing,
   draft,
   onDraftChange,
@@ -139,8 +156,7 @@ function ProviderRow({
   onClear,
   saving,
 }: {
-  p: ProviderDef;
-  configured: boolean;
+  p: ProviderInfo;
   editing: boolean;
   draft: string;
   onDraftChange: (v: string) => void;
@@ -157,35 +173,42 @@ function ProviderRow({
         <span
           aria-hidden="true"
           className={
-            configured
+            p.authenticated
               ? "inline-block w-2.5 h-2.5 rounded-full bg-green-500"
               : "inline-block w-2.5 h-2.5 rounded-full bg-zinc-500/40"
           }
         />
         <div className="flex-1 min-w-0">
           <div className="font-medium flex items-center gap-2">
-            {p.label}
-            <a
-              href={p.helpUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-xs text-[var(--color-fg-muted)] hover:underline"
-            >
-              ({p.installHint})
-            </a>
+            {p.name}
+            {p.help_url && (
+              <a
+                href={p.help_url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-xs text-[var(--color-fg-muted)] hover:underline"
+              >
+                {t("providers.helpLink")}
+              </a>
+            )}
+            <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-500/10 text-[var(--color-fg-muted)]">
+              {p.auth}
+            </span>
           </div>
-          <div className="text-xs text-[var(--color-fg-muted)] font-mono">
-            {p.envVar}
-          </div>
+          {p.env_var && (
+            <div className="text-xs text-[var(--color-fg-muted)] font-mono">
+              {p.env_var}
+            </div>
+          )}
         </div>
         <span
           className={
-            configured
+            p.authenticated
               ? "text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-600 dark:text-green-400"
               : "text-xs px-2 py-0.5 rounded-full bg-zinc-500/10 text-[var(--color-fg-muted)]"
           }
         >
-          {configured ? t("providers.configured") : t("providers.missing")}
+          {p.authenticated ? t("providers.configured") : t("providers.missing")}
         </span>
       </div>
 
@@ -196,7 +219,7 @@ function ProviderRow({
             autoComplete="off"
             value={draft}
             onChange={(e) => onDraftChange(e.target.value)}
-            placeholder={`${p.envVar}=...`}
+            placeholder={`${p.env_var ?? p.id}=...`}
             className="rh-input font-mono text-sm"
             disabled={saving}
           />
@@ -221,7 +244,7 @@ function ProviderRow({
         </div>
       ) : (
         <div className="flex gap-2 pl-6">
-          {configured ? (
+          {p.authenticated ? (
             <button
               type="button"
               onClick={onClear}

@@ -31,6 +31,7 @@ export function ClientAgent({ sessionId }: { sessionId: string }) {
           placeholder={t("agent.placeholder")}
           sendLabel={t("agent.send")}
           stopLabel={t("agent.stop")}
+          defaultModelId={state.modelId}
         />
       </footer>
     </div>

@@ -18,9 +18,12 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/catalog"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/envconfig"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/files"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/keystore"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/projects"
 	sshpkg "github.com/lucaspdude/rocinante-harness/apps/api/internal/ssh"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/storage"
 )
@@ -116,6 +119,22 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+
+	// PR-03: project registry + file-access allow-list. Migration runs
+	// before the server starts so the first poll from the web returns
+	// any pre-existing ompweb projects.
+	projectReg := projects.NewRegistry(effectiveShareDir)
+	if mr, err := projects.MigrateFromOmpweb(projectReg, effectiveShareDir); err != nil {
+		log.Printf("warning: ompweb projects migration failed: %v", err)
+	} else if mr.Added > 0 || mr.SkippedExisting > 0 {
+		log.Printf("migrated %d ompweb project(s); skipped %d existing",
+			mr.Added, mr.SkippedExisting)
+	}
+	fileAccess := files.NewFileAccess()
+	for _, p := range projectReg.List() {
+		fileAccess.QuietAllow(p.Path)
+	}
+
 	mux.Handle("/", middleware.TLSHandler(
 		middleware.CORSHandler(middleware.CORSConfig{})(
 			api.NewRouter(api.RouterDeps{
@@ -127,10 +146,30 @@ func main() {
 				AuthMW:       authMW,
 				ShareDir:     effectiveShareDir,
 				ProviderKeys: keystoreStore,
+				LoginHandlers: &api.LoginHandlers{
+					Providers: api.NewLoginProvidersCache(api.NewStaticLoginProviders(&keystore.EnvProbe{Store: keystoreStore})),
+					Jobs:      api.NewLoginJobs(),
+					OMPPath:   resolvedBin,
+					CmdFactory: api.OsExec,
+				},
+				ModelsCatalog: api.NewModelsCatalogHandler(
+					catalog.NewModelsDevCatalog(),
+					api.NewStaticLoginProviders(&keystore.EnvProbe{Store: keystoreStore}),
+				),
+				Projects: &api.ProjectsHandlers{
+					Registry:   projectReg,
+					Sessions:   manager,
+				},
+				Clone: &api.CloneHandlers{
+					Jobs:       projects.NewCloneJobs(),
+					Registry:   projectReg,
+					FileAccess: fileAccess,
+				},
+				Files: files.NewFilesHandler(fileAccess),
+				Git:   files.NewGitHandler(fileAccess),
 			}),
 		),
 	))
-
 	if dbErr == nil && authMW != nil {
 		sshHandler := &sshpkg.Handler{
 			Keys:    sshpkg.NewKeyStore(db),
@@ -139,8 +178,6 @@ func main() {
 		}
 		mux.Handle("/api/v1/ssh/", middleware.TLSHandler(sshHandler.Routes()))
 	}
-
-	// The api always binds to loopback. The web server (which is
 	// the only thing that talks to it) reaches us via the Next.js
 	// rewrite on the same host. Public access is delegated to
 	// whatever fronts the web server (Caddy, Cloudflare, a LAN IP

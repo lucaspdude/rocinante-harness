@@ -6,34 +6,33 @@ import (
 )
 
 // MetaResponse is the JSON body of /api/v1/meta.
+//
+// Providers is a flat array of provider info entries rather than a
+// map keyed by id. PR-01 reshaped this so the web side can render
+// configured/unconfigured state for any provider omp discovers.
+// The single-source-of-truth for the provider set lives in
+// api.LoginProvidersCache — this response uses the same wire shape.
 type MetaResponse struct {
-	APIVersion      string `json:"api_version"`
-	OmpVersion      string `json:"omp_version"`
-	ProtocolVersion int    `json:"protocol_version"`
-	OmpBin          string `json:"omp_bin"`
-	// Providers reports whether each provider's API key is
-	// configured. A provider is "configured" when EITHER the
-	// matching env var is set in the api's process OR the
-	// keystore on disk has an entry for it. The actual key
-	// value is never returned — only the booleans.
-	Providers ProviderStatus `json:"providers"`
+	APIVersion      string             `json:"api_version"`
+	OmpVersion      string             `json:"omp_version"`
+	ProtocolVersion int                `json:"protocol_version"`
+	OmpBin          string             `json:"omp_bin"`
+	Providers       []MetaProviderInfo `json:"providers"`
 }
 
-// ProviderStatus is the set of providers the api recognizes.
-// Each field is true when the corresponding provider has a
-// configured key. The field name is the canonical provider id
-// (matches the keystore's ProviderName string).
-type ProviderStatus struct {
-	Anthropic  bool `json:"anthropic"`
-	OpenAI     bool `json:"openai"`
-	Gemini     bool `json:"gemini"`
-	OpenRouter bool `json:"openrouter"`
-	Minimax    bool `json:"minimax"`
+// MetaProviderInfo is the per-provider entry in MetaResponse.
+// Compatible with LoginProviderInfo on the wire.
+type MetaProviderInfo struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Auth          string `json:"auth"`
+	Available     bool   `json:"available"`
+	Authenticated bool   `json:"authenticated"`
+	EnvVar        string `json:"env_var,omitempty"`
+	HelpURL       string `json:"help_url,omitempty"`
 }
 
-// ProviderProbe is the dependency the meta handler needs to
-// answer the providers checklist. The router wires this from
-// the keystore + os.Environ(); tests can use a stub.
+// ProviderProbe is the dependency the meta handler needs.
 type ProviderProbe interface {
 	IsConfigured(name string) bool
 }
@@ -42,7 +41,10 @@ type ProviderProbe interface {
 // On success (omp_bin resolved), it returns 200. When the omp
 // binary cannot be resolved, it returns 503 with a stable error
 // code.
-func NewMetaHandler(loader Loader, apiVersion string, probe ProviderProbe) http.HandlerFunc {
+//
+// providers is the source of provider rows — typically the same
+// LoginProvidersCache the /api/v1/login/providers handler serves.
+func NewMetaHandler(loader Loader, apiVersion string, providers []MetaProviderInfo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		bin := loader.OmpBin()
 		if bin == "" {
@@ -56,12 +58,8 @@ func NewMetaHandler(loader Loader, apiVersion string, probe ProviderProbe) http.
 			return
 		}
 		protocol, version := loader.OmpVersion()
-		status := ProviderStatus{
-			Anthropic:  probe.IsConfigured("anthropic"),
-			OpenAI:     probe.IsConfigured("openai"),
-			Gemini:     probe.IsConfigured("gemini"),
-			OpenRouter: probe.IsConfigured("openrouter"),
-			Minimax:    probe.IsConfigured("minimax"),
+		if providers == nil {
+			providers = []MetaProviderInfo{}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(MetaResponse{
@@ -69,7 +67,7 @@ func NewMetaHandler(loader Loader, apiVersion string, probe ProviderProbe) http.
 			OmpVersion:      version,
 			ProtocolVersion: protocol,
 			OmpBin:          bin,
-			Providers:       status,
+			Providers:       providers,
 		})
 	}
 }
