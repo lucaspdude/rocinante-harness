@@ -11,7 +11,8 @@ import (
 )
 
 type sessionRequest struct {
-	OmpCwd string `json:"omp_cwd"`
+	OmpCwd     string `json:"omp_cwd"`
+	ProjectPath string `json:"project_path,omitempty"`
 }
 
 type errorResponse struct {
@@ -27,7 +28,11 @@ func CreateSessionHandler(m *omp.Manager) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, errorResponse{Code: "bad_request", Message: err.Error()})
 			return
 		}
-		rec, err := m.Create(req.OmpCwd)
+		cwd := req.OmpCwd
+		if cwd == "" {
+			cwd = req.ProjectPath
+		}
+		rec, err := m.Create(cwd)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Code: "spawn_failed", Message: err.Error()})
 			return
@@ -37,7 +42,6 @@ func CreateSessionHandler(m *omp.Manager) http.HandlerFunc {
 }
 
 // StreamSessionHandler relays the omp stdout stream as SSE.
-// One SSE message per NDJSON line, byte-for-byte 1:1.
 func StreamSessionHandler(m *omp.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -55,16 +59,10 @@ func StreamSessionHandler(m *omp.Manager) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
-		flusher.Flush()
-
-		scanner := bufio.NewScanner(sess.Reader())
-		// Allow large frames (max ~16MB per line for now).
-		scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-		ctx := r.Context()
+		stream := sess.Reader()
+		scanner := bufio.NewScanner(stream)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		for scanner.Scan() {
-			if ctx.Err() != nil {
-				return
-			}
 			line := scanner.Bytes()
 			if _, err := w.Write([]byte("data: ")); err != nil {
 				return
@@ -80,16 +78,14 @@ func StreamSessionHandler(m *omp.Manager) http.HandlerFunc {
 	}
 }
 
-// CloseSessionHandler terminates a session (used by P8 sidebar).
+// CloseSessionHandler terminates a session.
 func CloseSessionHandler(m *omp.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		sess := m.Get(id)
-		if sess == nil {
+		if err := m.Close(id); err != nil {
 			writeJSON(w, http.StatusNotFound, errorResponse{Code: "session_not_found"})
 			return
 		}
-		_ = m.Close(id)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
