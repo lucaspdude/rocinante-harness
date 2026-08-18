@@ -161,10 +161,14 @@ func main() {
 					Sessions:   manager,
 					FileAccess: fileAccess,
 				},
+				Clone: &api.CloneHandlers{
+					Jobs:       projects.NewCloneJobs(),
+					Registry:   projectReg,
+					FileAccess: fileAccess,
+				},
 			}),
 		),
 	))
-
 	if dbErr == nil && authMW != nil {
 		sshHandler := &sshpkg.Handler{
 			Keys:    sshpkg.NewKeyStore(db),

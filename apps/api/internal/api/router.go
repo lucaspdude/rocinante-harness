@@ -25,6 +25,7 @@ type RouterDeps struct {
 	LoginHandlers *LoginHandlers
 	ModelsCatalog *ModelsCatalogHandler
 	Projects      *ProjectsHandlers
+	Clone         *CloneHandlers
 }
 
 // WrapHandler chains a middleware around an http.HandlerFunc,
@@ -90,7 +91,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		})
 	}
 
-	// PR-03: projects (auth-protected).
+	// PR-03 + PR-04: projects + clone (auth-protected).
 	if deps.Projects != nil {
 		r.Route("/api/v1/projects", func(r chi.Router) {
 			r.Get("/", deps.Projects.ProjectsHandler)
@@ -98,6 +99,13 @@ func NewRouter(deps RouterDeps) http.Handler {
 			r.Patch("/", deps.Projects.PatchHandler)
 			r.Delete("/", deps.Projects.DeleteHandler)
 		})
+		if deps.Clone != nil {
+			r.Route("/api/v1/projects/clone", func(r chi.Router) {
+				r.Post("/", deps.Clone.CloneStartHandler)
+				r.Get("/{jobId}/stream", deps.Clone.CloneStreamHandler)
+				r.Get("/{jobId}/status", deps.Clone.CloneStatusHandler)
+			})
+		}
 	}
 
 	idem := middleware.IdempotencyMiddleware(deps.Idempotency)
