@@ -27,7 +27,7 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/storage"
 )
 
-const apiVersion = "0.1.0"
+const apiVersion = "1.0.0"
 
 type staticMetaLoader struct {
 	ompBin          string

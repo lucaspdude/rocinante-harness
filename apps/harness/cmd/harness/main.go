@@ -7,7 +7,7 @@ import (
 	"syscall"
 )
 
-const harnessVersion = "0.1.0"
+const harnessVersion = "1.0.0"
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
