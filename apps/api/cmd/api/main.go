@@ -46,6 +46,7 @@ func main() {
 	port := flag.Int("port", 30179, "HTTP port (overrides ROCINANTE_PORT)")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate path (PEM)")
 	tlsKey := flag.String("tls-key", "", "TLS private key path (PEM)")
+	bind := flag.String("bind", envOr("ROCINANTE_HOST", "127.0.0.1"), "host/IP to listen on (use 0.0.0.0 for LAN exposure)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 
 	flag.Parse()
@@ -185,7 +186,7 @@ func main() {
 	// whatever fronts the web server (Caddy, Cloudflare, a LAN IP
 	// directly). This removes the CORS / bind / allowlist flags
 	// that produced so much installer friction.
-	addr := "127.0.0.1:" + fmt.Sprintf("%d", *port)
+	addr := *bind + ":" + fmt.Sprintf("%d", *port)
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
@@ -235,4 +236,11 @@ func resolveOmp(flag string) (staticMetaLoader, string) {
 		protocolVersion: proto,
 		ompVersion:      ver,
 	}, bin
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
