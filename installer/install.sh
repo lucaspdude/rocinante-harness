@@ -194,7 +194,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$SHARE_DIR
-ExecStart=$SHARE_DIR/bin/api --share-dir $SHARE_DIR --port 30179
+ExecStart=$SHARE_DIR/bin/api --share-dir $SHARE_DIR --port 30179 --bind ${ROCINANTE_HOST:-127.0.0.1}
 EnvironmentFile=$ENV_FILE
 Restart=always
 RestartSec=5
