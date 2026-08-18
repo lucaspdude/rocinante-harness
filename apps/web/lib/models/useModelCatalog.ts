@@ -14,9 +14,16 @@ export interface ModelEntry {
   provider: string;
   name: string;
   context_length?: number;
+  max_tokens?: number;
   modalities?: string[];
   cost_input?: number;
   cost_output?: number;
+  cost_cache_read?: number;
+  cost_cache_write?: number;
+  reasoning?: boolean;
+  thinking_supported?: boolean;
+  auth_supported?: boolean;
+  source?: string;
   selectable: boolean;
   stale?: boolean;
 }
