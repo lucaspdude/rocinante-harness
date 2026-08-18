@@ -147,9 +147,14 @@ func main() {
 				ShareDir:     effectiveShareDir,
 				ProviderKeys: keystoreStore,
 				LoginHandlers: &api.LoginHandlers{
-					Providers: api.NewLoginProvidersCache(api.NewStaticLoginProviders(&keystore.EnvProbe{Store: keystoreStore})),
+					Providers: api.NewLoginProvidersCache(
+						api.NewOMPLoginProviders(
+							resolvedBin,
+							&keystore.EnvProbe{Store: keystoreStore},
+							api.NewStaticLoginProviders(&keystore.EnvProbe{Store: keystoreStore}),
+						),
+					),
 					Jobs:      api.NewLoginJobs(),
-					OMPPath:   resolvedBin,
 					CmdFactory: api.OsExec,
 				},
 				ModelsCatalog: api.NewModelsCatalogHandler(
