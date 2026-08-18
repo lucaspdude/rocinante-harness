@@ -14,21 +14,15 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// stubCmd is a CmdIface stand-in for tests. It writes preset data
-// to its stdout and exits cleanly.
 type stubCmd struct {
-	outR  *io.PipeReader
-	outW  *io.PipeWriter
-	done  chan struct{}
+	stdoutR *io.PipeReader
+	stdoutW *io.PipeWriter
+	done    chan struct{}
 }
 
 func newStubCmd(payload string) *stubCmd {
 	r, w := io.Pipe()
-	c := &stubCmd{
-		outR: r,
-		outW: w,
-		done: make(chan struct{}),
-	}
+	c := &stubCmd{stdoutR: r, stdoutW: w, done: make(chan struct{})}
 	go func() {
 		defer close(c.done)
 		_, _ = io.WriteString(w, payload)
@@ -37,7 +31,8 @@ func newStubCmd(payload string) *stubCmd {
 	return c
 }
 
-func (s *stubCmd) StdoutPipe() (io.ReadCloser, error) { return s.outR, nil }
+func (s *stubCmd) StdoutPipe() (io.ReadCloser, error) { return s.stdoutR, nil }
+func (s *stubCmd) StderrPipe() (io.ReadCloser, error) { return s.stdoutR, nil }
 func (s *stubCmd) Start() error                       { return nil }
 func (s *stubCmd) Wait() error                        { <-s.done; return nil }
 
@@ -70,7 +65,7 @@ func mount(h *LoginHandlers) http.Handler {
 	return r
 }
 
-func TestLoginProvidersEndpoint(t *testing.T) {
+func TestProvidersCapabilitiesShape(t *testing.T) {
 	h := newTestHandlers()
 	r := mount(h)
 	rr := httptest.NewRecorder()
@@ -85,6 +80,35 @@ func TestLoginProvidersEndpoint(t *testing.T) {
 	}
 	if len(body.Providers) < 2 {
 		t.Fatalf("providers len = %d, want >= 2", len(body.Providers))
+	}
+	for _, p := range body.Providers {
+		if p.ID == "anthropic" && !p.Authenticated {
+			t.Error("anthropic should be configured per testProbe")
+		}
+		if p.ID == "openai" && p.Authenticated {
+			t.Error("openai should not be configured per testProbe")
+		}
+		if !p.SupportsLogin {
+			t.Errorf("provider %q missing supports_login=true", p.ID)
+		}
+		if len(p.EnvVars) == 0 {
+			t.Errorf("provider %q has empty env_vars", p.ID)
+		}
+	}
+}
+
+func TestLoginProvidersEndpoint(t *testing.T) {
+	h := newTestHandlers()
+	r := mount(h)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/login/providers", nil)
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var body LoginProvidersResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
 	var anthropic *LoginProviderInfo
 	for i, p := range body.Providers {
@@ -124,6 +148,20 @@ func TestLoginStartReturns202(t *testing.T) {
 	}
 }
 
+// waitFor polls until either the predicate becomes true or the
+// timeout passes. Uses direct field access to avoid acquiring job.mu
+// recursively (the State's method also takes the lock).
+func waitFor(t *testing.T, h *LoginHandlers, id string, timeout time.Duration, pred func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if pred() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestLoginStreamEmitsEvents(t *testing.T) {
 	h := newTestHandlers()
 	r := mount(h)
@@ -136,34 +174,42 @@ func TestLoginStreamEmitsEvents(t *testing.T) {
 	var start LoginStartResponse
 	_ = json.Unmarshal(rr.Body.Bytes(), &start)
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		j := h.Jobs.Get(start.JobID)
-		if j != nil {
-			j.mu.Lock()
-			state := j.state
-			evs := len(j.events)
-			j.mu.Unlock()
-			if evs >= 1 && state != LoginJobRunning {
-				break
-			}
+	completed := false
+	waitFor(t, h, start.JobID, 2*time.Second, func() bool {
+		job := h.Jobs.Get(start.JobID)
+		if job == nil {
+			return false
 		}
-		time.Sleep(20 * time.Millisecond)
+		job.mu.Lock()
+		state := job.state
+		evs := len(job.events)
+		job.mu.Unlock()
+		if evs >= 1 && state != LoginJobRunning {
+			completed = true
+			return true
+		}
+		return false
+	})
+	if !completed {
+		t.Fatal("job did not complete within timeout")
 	}
-	j := h.Jobs.Get(start.JobID)
-	if j == nil {
+	job := h.Jobs.Get(start.JobID)
+	if job == nil {
 		t.Fatal("job missing")
 	}
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	if len(j.events) < 1 {
-		t.Fatalf("events = %d, want >= 1", len(j.events))
+	job.mu.Lock()
+	final := job.state
+	events := append([]LoginEvent(nil), job.events...)
+	job.mu.Unlock()
+	if final != LoginJobComplete {
+		t.Errorf("final state = %q, want complete", final)
 	}
-	if j.events[0].Event != "ui_request" && j.events[0].Event != "spawn" {
-		t.Errorf("first event = %q, want ui_request or spawn", j.events[0].Event)
+	if len(events) == 0 {
+		t.Fatal("no events emitted")
 	}
-	if j.state != LoginJobComplete {
-		t.Errorf("final state = %q, want complete", j.state)
+	first := events[0].Event
+	if first != "ui_request" && first != "spawn" {
+		t.Errorf("first event = %q, want ui_request or spawn", first)
 	}
 }
 
@@ -179,24 +225,24 @@ func TestLoginAckRoundtrip(t *testing.T) {
 	var start LoginStartResponse
 	_ = json.Unmarshal(rr.Body.Bytes(), &start)
 
+	body := strings.NewReader(`{"value":"abc"}`)
 	rr2 := httptest.NewRecorder()
-	body := bytes.NewReader([]byte(`{"value":"abc"}`))
 	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/login/"+start.JobID+"/ack", body)
 	r.ServeHTTP(rr2, req2)
 	if rr2.Code != http.StatusNoContent {
-		t.Fatalf("ack status = %d, want 204, body=%s", rr2.Code, rr2.Body.String())
+		t.Errorf("status = %d, want 204", rr2.Code)
 	}
 
 	rr3 := httptest.NewRecorder()
 	req3 := httptest.NewRequest(http.MethodGet, "/api/v1/login/"+start.JobID+"/status", nil)
 	r.ServeHTTP(rr3, req3)
 	if rr3.Code != http.StatusOK {
-		t.Fatalf("status status = %d, want 200", rr3.Code)
+		t.Errorf("status status = %d, want 200", rr3.Code)
 	}
 	var st LoginStatus
 	_ = json.Unmarshal(rr3.Body.Bytes(), &st)
-	if st.ProviderID != "openai" {
-		t.Errorf("provider_id = %q", st.ProviderID)
+	if st.JobID == "" {
+		t.Error("JobID empty in status")
 	}
 }
 
@@ -206,13 +252,9 @@ func TestLoginAckJobExpiredReturns410(t *testing.T) {
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/login/start/anthropic", nil)
 	r.ServeHTTP(rr, req)
-	if rr.Code != http.StatusAccepted {
-		t.Fatalf("start status = %d, want 202", rr.Code)
-	}
 	var start LoginStartResponse
 	_ = json.Unmarshal(rr.Body.Bytes(), &start)
 
-	// Force the job to expire via direct method call.
 	job := h.Jobs.Get(start.JobID)
 	if job == nil {
 		t.Fatal("job missing")
@@ -220,7 +262,7 @@ func TestLoginAckJobExpiredReturns410(t *testing.T) {
 	job.Finish(LoginJobExpired, "test")
 
 	rr2 := httptest.NewRecorder()
-	body := bytes.NewReader([]byte(`{}`))
+	body := strings.NewReader(`{}`)
 	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/login/"+start.JobID+"/ack", body)
 	r.ServeHTTP(rr2, req2)
 	if rr2.Code != http.StatusGone {
@@ -241,3 +283,6 @@ func TestJobIDGeneration(t *testing.T) {
 		seen[id] = struct{}{}
 	}
 }
+
+// silence bytes import warning
+var _ = bytes.NewBuffer

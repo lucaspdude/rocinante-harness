@@ -1,10 +1,5 @@
 package api
 
-// Login endpoints: provider list, login job lifecycle, SSE
-// streaming, and ack roundtrip with the omp child. See
-// docs/mvp/phase-1-functionality/05-pr-specs/PR-01-login-driven.md
-// for the wire-format specification that drove these types.
-
 import (
 	"time"
 
@@ -47,7 +42,6 @@ type LoginStatus struct {
 	StartedAt  time.Time `json:"started_at"`
 	EndedAt    time.Time `json:"ended_at,omitempty"`
 	Error      string    `json:"error,omitempty"`
-	Auth       string    `json:"auth,omitempty"`
 }
 
 // LoginStreamEvent is the SSE event payload pushed by the harness.

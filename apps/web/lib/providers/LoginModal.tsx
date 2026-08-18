@@ -229,7 +229,9 @@ export function LoginModal({
                     <optgroup label={t("login.modal.unconfigured")}>
                       {unconfigured.map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.name} ({p.auth})
+                          {p.name}
+                          {p.supports_login && !p.keyless ? ` · /login` : ""}
+                          {p.keyless ? ` · keyless` : ""}
                         </option>
                       ))}
                     </optgroup>
@@ -237,10 +239,17 @@ export function LoginModal({
                 </select>
               </div>
             )}
-
             {currentProvider && (
               <p className="text-xs text-[var(--color-fg-muted)] mb-3">
-                {t("login.modal.authKind")}: {currentProvider.auth}
+                {currentProvider.supports_login
+                  ? t("login.modal.supportsLogin")
+                  : ""}
+                {currentProvider.keyless
+                  ? t("login.modal.keyless")
+                  : ""}
+                {!currentProvider.supports_login && !currentProvider.keyless
+                  ? t("login.modal.pasteKey")
+                  : ""}
               </p>
             )}
 

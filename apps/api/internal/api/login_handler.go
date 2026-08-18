@@ -99,18 +99,9 @@ func (h *LoginHandlers) LoginStartHandler(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
-	auth := "paste-key"
-	if h.Providers != nil {
-		for _, p := range h.Providers.Snapshot() {
-			if p.ID == providerID {
-				auth = p.Auth
-				break
-			}
-		}
-	}
 
 	ctx, cancel := context.WithCancel(r.Context())
-	job := h.Jobs.NewJob(providerID, auth, cancel)
+	job := h.Jobs.NewJob(providerID, cancel)
 	job.SetResponder(func(ack LoginAck) error {
 		job.publish(LoginEvent{
 			Event: "ack",

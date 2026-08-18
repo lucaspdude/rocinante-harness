@@ -1,22 +1,18 @@
 package api
 
-// Provider catalog for the login-driven UI. The full list of 66
-// omp providers comes from `omp get_login_providers` (when the
-// host has omp installed). In that probe path, LoginProviderInfo is
-// populated 1:1 from the omp RPC. When omp is unavailable, we
-// fall back to the 5 known providers the keystore already supports
-// (anthropic, openai, gemini, openrouter, minimax) so the harness
-// UI is still functional in offline development.
+// Provider catalog for the login-driven UI. PR-01 (static fallback)
+// + post-review F1 (dynamic ompRPC impl).
 //
-// This module is the single source of truth for the wire shape of
-// /api/v1/login/providers AND /api/v1/meta (PR-01 reshape). Both
-// endpoints expose the same provider list — meta reports a flat
-// array of LoginProviderInfo per the PR-01 spec.
+// The merge of static + dynamic is delegated to `Merge` which
+// returns a merged slice with the dynamic list taking precedence
+// per id (so an omp upgrade that adds providers shows them).
 
 import (
+	"sort"
 	"sync"
 	"time"
 
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/catalog"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/keystore"
 )
 
@@ -28,22 +24,15 @@ type ProviderProbe interface {
 }
 
 // LoginProvidersProvider is the seam that knows how to enumerate
-// omp's providers. The default impl enumerates the 5 known
-// providers; a richer impl could shell out to `omp
-// get_login_providers` (PR-01 spec, future hardening).
+// omp's providers.
 type LoginProvidersProvider interface {
-	List() []LoginProviderInfo
+	List() []catalog.LoginProviderInfo
 }
 
-type staticLoginProviders struct {
-	probe ProviderProbe
-}
-
-// NewStaticLoginProviders builds the fallback provider list. It is
-// used when the harness can't shell out to omp (e.g. in CI or
-// before the user installs omp). The list intentionally matches
-// keystore.KnownProviders — paste-key is the only auth method
-// exposed here because that's what keystore supports.
+// NewStaticLoginProviders returns the fallback list (5 known
+// paste-key providers). Used when omp is unavailable; the runtime
+// wiring in main prefers NewDynamicLoginProviders which falls
+// back to the static impl if omp spawn fails.
 func NewStaticLoginProviders(probe ProviderProbe) LoginProvidersProvider {
 	if probe == nil {
 		probe = nullProbe{}
@@ -51,85 +40,61 @@ func NewStaticLoginProviders(probe ProviderProbe) LoginProvidersProvider {
 	return staticLoginProviders{probe: probe}
 }
 
-// List returns the 5 known providers in a stable order. Auth is
-// always "paste-key" because that's what the keystore implements.
-// The user's installed omp may have additional providers — those
-// will be returned by the dynamic provider impl (PR-01 follow-up).
-func (s staticLoginProviders) List() []LoginProviderInfo {
-	now := time.Now().UTC()
-	out := make([]LoginProviderInfo, 0, len(keystore.KnownProviders))
-	for _, p := range keystore.KnownProviders {
-		info := providerInfoFromKnown(p, s.probe.IsConfigured(string(p)))
-		_ = now
-		out = append(out, info)
+type staticLoginProviders struct {
+	probe ProviderProbe
+}
+
+// List returns the 5 known providers in stable order with their
+// single canonical env var. Auth method is paste-key because the
+// keystore only handles that today. The list is sorted by id so
+// callers don't have to.
+func (s staticLoginProviders) List() []catalog.LoginProviderInfo {
+	out := []catalog.LoginProviderInfo{
+		providerInfoFromKnown(keystore.Anthropic, s.probe.IsConfigured(string(keystore.Anthropic))),
+		providerInfoFromKnown(keystore.OpenAI, s.probe.IsConfigured(string(keystore.OpenAI))),
+		providerInfoFromKnown(keystore.Gemini, s.probe.IsConfigured(string(keystore.Gemini))),
+		providerInfoFromKnown(keystore.OpenRouter, s.probe.IsConfigured(string(keystore.OpenRouter))),
+		providerInfoFromKnown(keystore.Minimax, s.probe.IsConfigured(string(keystore.Minimax))),
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 
 // providerInfoFromKnown maps the keystore provider name to its
-// LoginProviderInfo. The fields are stable so the web side can
-// rely on id + auth + authenticated for its UI.
-func providerInfoFromKnown(p keystore.ProviderName, configured bool) LoginProviderInfo {
+// LoginProviderInfo. Every known paste-key provider supports the
+// generic `/login` OAuth-style flow. Keyless is false (each
+// requires an API key).
+func providerInfoFromKnown(p keystore.ProviderName, configured bool) catalog.LoginProviderInfo {
+	var help, name string
 	switch p {
 	case keystore.Anthropic:
-		return LoginProviderInfo{
-			ID:            string(p),
-			Name:          "Anthropic",
-			Auth:          "paste-key",
-			Available:     true,
-			Authenticated: configured,
-			EnvVar:        p.EnvVar(),
-			HelpURL:       "https://console.anthropic.com/settings/keys",
-		}
+		help = "https://console.anthropic.com/settings/keys"
+		name = "Anthropic"
 	case keystore.OpenAI:
-		return LoginProviderInfo{
-			ID:            string(p),
-			Name:          "OpenAI",
-			Auth:          "paste-key",
-			Available:     true,
-			Authenticated: configured,
-			EnvVar:        p.EnvVar(),
-			HelpURL:       "https://platform.openai.com/api-keys",
-		}
+		help = "https://platform.openai.com/api-keys"
+		name = "OpenAI"
 	case keystore.Gemini:
-		return LoginProviderInfo{
-			ID:            string(p),
-			Name:          "Google Gemini",
-			Auth:          "paste-key",
-			Available:     true,
-			Authenticated: configured,
-			EnvVar:        p.EnvVar(),
-			HelpURL:       "https://aistudio.google.com/apikey",
-		}
+		help = "https://aistudio.google.com/apikey"
+		name = "Google Gemini"
 	case keystore.OpenRouter:
-		return LoginProviderInfo{
-			ID:            string(p),
-			Name:          "OpenRouter",
-			Auth:          "paste-key",
-			Available:     true,
-			Authenticated: configured,
-			EnvVar:        p.EnvVar(),
-			HelpURL:       "https://openrouter.ai/settings/keys",
-		}
+		help = "https://openrouter.ai/settings/keys"
+		name = "OpenRouter"
 	case keystore.Minimax:
-		return LoginProviderInfo{
-			ID:            string(p),
-			Name:          "Minimax (token plan)",
-			Auth:          "paste-key",
-			Available:     true,
-			Authenticated: configured,
-			EnvVar:        p.EnvVar(),
-			HelpURL:       "https://minimax.io/dashboard",
-		}
-	default:
-		return LoginProviderInfo{
-			ID:            string(p),
-			Name:          string(p),
-			Auth:          "paste-key",
-			Available:     true,
-			Authenticated: configured,
-			EnvVar:        p.EnvVar(),
-		}
+		help = "https://minimax.io/dashboard"
+		name = "Minimax (token plan)"
+	}
+	if name == "" {
+		name = string(p)
+	}
+	return catalog.LoginProviderInfo{
+		ID:            string(p),
+		Name:          name,
+		Available:     true,
+		Authenticated: configured,
+		EnvVars:       []string{p.EnvVar()},
+		SupportsLogin: true,
+		Keyless:       false,
+		HelpURL:       help,
 	}
 }
 
@@ -138,13 +103,11 @@ type nullProbe struct{}
 func (nullProbe) IsConfigured(string) bool { return false }
 
 // LoginProvidersCache wraps the provider source with a 5s TTL —
-// matches the README cross-cutting decision §1. Cache is keyed on
-// a hash of the available probe state so a save/delete flips the
-// next read immediately (best-effort).
+// matches the README cross-cutting decision §1.
 type LoginProvidersCache struct {
-	src   LoginProvidersProvider
-	mu    sync.RWMutex
-	cached []LoginProviderInfo
+	src    LoginProvidersProvider
+	mu     sync.RWMutex
+	cached []catalog.LoginProviderInfo
 	at     time.Time
 }
 
@@ -155,7 +118,7 @@ func NewLoginProvidersCache(src LoginProvidersProvider) *LoginProvidersCache {
 
 // Snapshot returns the current provider list, refreshing when the
 // cache is older than 5s.
-func (c *LoginProvidersCache) Snapshot() []LoginProviderInfo {
+func (c *LoginProvidersCache) Snapshot() []catalog.LoginProviderInfo {
 	c.mu.RLock()
 	if c.cached != nil && time.Since(c.at) < 5*time.Second {
 		defer c.mu.RUnlock()
@@ -164,7 +127,6 @@ func (c *LoginProvidersCache) Snapshot() []LoginProviderInfo {
 	c.mu.RUnlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// Re-check under write lock to avoid double refresh.
 	if c.cached != nil && time.Since(c.at) < 5*time.Second {
 		return c.cached
 	}

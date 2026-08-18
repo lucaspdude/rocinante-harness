@@ -147,10 +147,8 @@ func (d RouterDeps) metaHandler() http.HandlerFunc {
 			rows = append(rows, omp.MetaProviderInfo{
 				ID:            p.ID,
 				Name:          p.Name,
-				Auth:          p.Auth,
 				Available:     p.Available,
 				Authenticated: p.Authenticated,
-				EnvVar:        p.EnvVar,
 				HelpURL:       p.HelpURL,
 			})
 		}
