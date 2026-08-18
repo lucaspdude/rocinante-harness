@@ -1,8 +1,7 @@
 "use client";
 
 // Hook that polls /api/v1/meta and returns the set of detected
-// providers (PR-01 reshape: a flat array of ProviderInfo objects,
-// not a map keyed by id).
+// providers (PR-01 reshape + post-review capabilities).
 //
 // The api never returns the values, only the booleans — the web UI
 // uses these to render a "Configured / Not set" checklist in the
@@ -23,15 +22,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 
-export type AuthKind = "paste-key" | "oauth" | "keyless";
-
 export interface ProviderInfo {
   id: string;
   name: string;
-  auth: AuthKind;
   available: boolean;
   authenticated: boolean;
-  env_var?: string;
+  // Capabilities (orthogonal, per PR-01 advisory 4):
+  env_vars?: string[];
+  supports_login: boolean;
+  keyless: boolean;
   help_url?: string;
 }
 
@@ -46,6 +45,13 @@ interface MetaResponse {
 interface LoginProvidersResponse {
   providers: ProviderInfo[];
   cached_at: string;
+}
+
+// Legacy single-env-var convenience: return the first env var or
+// undefined. Used by the panel's save form which currently writes
+// only one key.
+export function envVarOf(p: ProviderInfo): string | undefined {
+  return p.env_vars?.[0];
 }
 
 export function useProviders(intervalMs = 5000): {
@@ -122,7 +128,7 @@ export function useProviders(intervalMs = 5000): {
 }
 
 // useLoginProviders polls the dedicated login providers endpoint
-// (cache 5s server-side). Same shape as useProviders minus the meta.
+// (cache 5s server-side). Same shape as useProviders minus meta.
 export function useLoginProviders(intervalMs = 5000): {
   providers: ProviderInfo[];
   reload: () => void;
@@ -144,8 +150,10 @@ export function useLoginProviders(intervalMs = 5000): {
         setProviders(res.providers ?? []);
         setError(null);
       } catch (e) {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) {
+          const err = e as { body?: { message?: string }; message?: string };
+          setError(err.body?.message ?? err.message ?? "failed");
+        }
       }
     }
     load();

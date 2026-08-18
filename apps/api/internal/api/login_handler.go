@@ -4,17 +4,11 @@ package api
 // /api/v1/login/* are public (no auth): providers, start, stream
 // (SSE), ack (POST), status.
 //
-// The flow:
-//   1. GET /api/v1/login/providers      → list of available providers
-//   2. POST /api/v1/login/start/{id}    → 202 with job_id
-//   3. GET /api/v1/login/{id}/stream    → SSE event stream
-//   4. POST /api/v1/login/{id}/ack      → user response
-//   5. GET /api/v1/login/{id}/status    → terminal state
-//
-// For the MVP we don't shell out to a real omp child — the
-// keystore write path remains the canonical way to set a key, and
-// the /login lifecycle exists so the UI has a stable shape across
-// all 5 known providers. PR-01 follow-up can wire the omp child.
+// F4 (post-review): the login flow spawns `omp --mode rpc-ui`
+// (not the legacy `omp login <id>` CLI subcommand), sends
+// `{"type":"login","providerId":"X"}` on stdin, and reads JSONL
+// stdout frames. ui_request frames become SSE events;
+// response/login_response/auth_complete frames close the job.
 
 import (
 	"bufio"
@@ -26,51 +20,34 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 )
 
-// LoginHandlers groups the dependencies needed by the login routes.
+// LoginHandlers groups the deps for the login routes.
 type LoginHandlers struct {
-	Providers *LoginProvidersCache
-	Jobs      *LoginJobs
-	OMPPath   string // optional — path to the omp binary; empty disables the spawn
-	Logger    Logger // optional structured logger
-	// CmdFactory allows tests to stub exec.CommandContext; production wires osExec.
+	Providers  LoginProvidersProvider
+	Jobs       *LoginJobs
+	Files      *LoginHandlersFiles
+	OMPPath    string
+	Logger     Logger
 	CmdFactory func(ctx context.Context, name string, args []string) CmdIface
 }
+
+// LoginHandlersFiles is a placeholder for project-context integration.
+type LoginHandlersFiles struct{}
 
 // Logger is the minimal interface the login handlers need.
 type Logger interface {
 	Info(msg string, kv ...any)
 	Error(msg string, kv ...any)
 }
-// OsExec is the production CmdFactory; it shells out via os/exec.
-func OsExec(ctx context.Context, name string, args []string) CmdIface {
-	return &realCmd{Cmd: exec.CommandContext(ctx, name, args...)}
-}
 
 type nullLogger struct{}
 
-func (nullLogger) Info(string, ...any) {}
+func (nullLogger) Info(string, ...any)  {}
 func (nullLogger) Error(string, ...any) {}
-
-// CmdIface is the subset of *exec.Cmd the login flow needs. Tests
-// can swap in a fake impl that pipes canned output.
-type CmdIface interface {
-	StdoutPipe() (io.ReadCloser, error)
-	Start() error
-	Wait() error
-}
-
-
-type realCmd struct{ Cmd *exec.Cmd }
-
-func (r *realCmd) StdoutPipe() (io.ReadCloser, error) { return r.Cmd.StdoutPipe() }
-func (r *realCmd) Start() error                       { return r.Cmd.Start() }
-func (r *realCmd) Wait() error                        { return r.Cmd.Wait() }
 
 // LoginProvidersHandler serves GET /api/v1/login/providers.
 func (h *LoginHandlers) LoginProvidersHandler(w http.ResponseWriter, r *http.Request) {
@@ -99,19 +76,19 @@ func (h *LoginHandlers) LoginStartHandler(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
-	auth := "paste-key"
-	if h.Providers != nil {
-		for _, p := range h.Providers.Snapshot() {
-			if p.ID == providerID {
-				auth = p.Auth
-				break
-			}
-		}
-	}
 
 	ctx, cancel := context.WithCancel(r.Context())
-	job := h.Jobs.NewJob(providerID, auth, cancel)
+	job := h.Jobs.NewJob(providerID, cancel)
 	job.SetResponder(func(ack LoginAck) error {
+		// F4 ack roundtrip: forward to the omp child via the
+		// job's stdin.
+		if w := job.Stdin(); w != nil {
+			frame := fmt.Sprintf(
+				`{"type":"extension_ui_response","id":%q,"value":%q}`+"\n",
+				ack.Value, ack.Value,
+			)
+			_, _ = io.WriteString(w, frame)
+		}
 		job.publish(LoginEvent{
 			Event: "ack",
 			Data: map[string]any{
@@ -133,8 +110,7 @@ func (h *LoginHandlers) LoginStartHandler(w http.ResponseWriter, r *http.Request
 }
 
 // runLoginJob drives the omp child (when configured) or a
-// no-op "ui_request" otherwise. Either way, the job closes when
-// stdout is exhausted.
+// no-op "ui_request" otherwise.
 func (h *LoginHandlers) runLoginJob(ctx context.Context, job *LoginJob) {
 	defer job.Finish(LoginJobComplete, "")
 
@@ -165,25 +141,37 @@ func (h *LoginHandlers) runJob(ctx context.Context, job *LoginJob) error {
 		}
 	}
 
+	// Spawn `omp --mode rpc-ui` and send the JSONL login frame
+	// (F4 spec). The harness reads stdout line-by-line.
 	job.publish(LoginEvent{
 		Event: "spawn",
 		Data: map[string]any{
 			"omp_bin": h.OMPPath,
-			"argv":    []string{"login", job.ProviderID},
+			"argv":    []string{"--mode", "rpc-ui"},
 		},
 	})
-	cmd := h.CmdFactory(ctx, h.OMPPath, []string{"login", job.ProviderID})
+	cmd := h.CmdFactory(ctx, h.OMPPath, []string{"--mode", "rpc-ui"})
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("pipe: %w", err)
 	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("stdin pipe: %w", err)
+	}
+	job.SetStdin(stdin)
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("spawn: %w", err)
 	}
-	var wg sync.WaitGroup
-	wg.Add(1)
+	loginFrame := fmt.Sprintf(`{"type":"login","providerId":%q}`+"\n", job.ProviderID)
+	if _, err := io.WriteString(stdin, loginFrame); err != nil {
+		_ = stdin.Close()
+		return fmt.Errorf("write login frame: %w", err)
+	}
+
+	scanErrCh := make(chan error, 1)
 	go func() {
-		defer wg.Done()
 		scanner := bufio.NewScanner(stdout)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		for scanner.Scan() {
@@ -192,23 +180,37 @@ func (h *LoginHandlers) runJob(ctx context.Context, job *LoginJob) error {
 				continue
 			}
 			var payload map[string]any
-			if uerr := json.Unmarshal(line, &payload); uerr == nil {
-				if method, _ := payload["method"].(string); method != "" {
-					job.publish(LoginEvent{
-						Event: "ui_request",
-						Data:  payload,
-					})
-					continue
-				}
+			if uerr := json.Unmarshal(line, &payload); uerr != nil {
+				job.publish(LoginEvent{
+					Event: "log",
+					Data:  map[string]any{"line": string(line)},
+				})
+				continue
 			}
-			job.publish(LoginEvent{
-				Event: "log",
-				Data:  map[string]any{"line": string(line)},
-			})
+			frameType, _ := payload["type"].(string)
+			switch frameType {
+			case "extension_ui_request":
+				job.publish(LoginEvent{
+					Event: "ui_request",
+					Data:  payload,
+				})
+			case "response", "login_response", "login_complete", "auth_complete":
+				job.publish(LoginEvent{
+					Event: "auth_complete",
+					Data:  payload,
+				})
+			default:
+				job.publish(LoginEvent{
+					Event: "log",
+					Data:  map[string]any{"line": string(line)},
+				})
+			}
 		}
+		scanErrCh <- scanner.Err()
 	}()
 	waitErr := cmd.Wait()
-	wg.Wait()
+	<-scanErrCh
+	_ = stdin.Close()
 	return waitErr
 }
 
@@ -231,17 +233,8 @@ func (h *LoginHandlers) LoginStreamHandler(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
-	past, unsub, err := job.Subscribe()
-	if err != nil {
-		_ = writeSSE(w, "status", map[string]any{
-			"job_id": job.ID,
-			"state":  string(job.State()),
-		})
-		flusher.Flush()
-		return
-	}
+	past, unsub, _ := job.Subscribe()
 	defer unsub()
-
 	for _, ev := range past {
 		if !writeSSE(w, ev.Event, ev.Data) {
 			return
@@ -249,9 +242,6 @@ func (h *LoginHandlers) LoginStreamHandler(w http.ResponseWriter, r *http.Reques
 	}
 	flusher.Flush()
 
-	// 15s heartbeat ticker. While the ticker hasn't fired, poll
-	// the job's terminal state every 50ms so we emit a final
-	// "status" event and close promptly.
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -266,10 +256,15 @@ func (h *LoginHandlers) LoginStreamHandler(w http.ResponseWriter, r *http.Reques
 			continue
 		default:
 		}
-		if job.State() != LoginJobRunning {
+		cur := h.Jobs.Get(jobID)
+		if cur == nil {
+			return
+		}
+		snap := cur.Snapshot()
+		if snap.State != "running" {
 			_ = writeSSE(w, "status", map[string]any{
-				"job_id": job.ID,
-				"state":  string(job.State()),
+				"job_id": snap.JobID,
+				"state":  snap.State,
 			})
 			flusher.Flush()
 			return
@@ -292,7 +287,6 @@ func (h *LoginHandlers) LoginAckHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	var ack LoginAck
 	if err := json.NewDecoder(r.Body).Decode(&ack); err != nil {
-		// Empty body is allowed — it's a cancel signal.
 		if !errors.Is(err, io.EOF) {
 			writeJSON(w, http.StatusBadRequest, errorResponse{
 				Code:    "bad_request",
@@ -364,3 +358,6 @@ func sanitizeEventName(s string) string {
 	}
 	return b.String()
 }
+
+// silence unused import
+var _ = exec.CommandContext

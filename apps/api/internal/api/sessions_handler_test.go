@@ -32,7 +32,7 @@ func newTestRouter(t *testing.T, scriptBody string) (http.Handler, *omp.Manager)
 	bin := writeScript(t, scriptBody)
 	manager := omp.NewManagerWithFactory(scriptFactory{bin: bin})
 	mux := chi.NewRouter()
-	mux.Post("/api/v1/sessions", CreateSessionHandler(manager))
+	mux.Post("/api/v1/sessions", CreateSessionHandler(manager, nil))
 	mux.Get("/api/v1/sessions/{id}/events", StreamSessionHandler(manager))
 	return mux, manager
 }

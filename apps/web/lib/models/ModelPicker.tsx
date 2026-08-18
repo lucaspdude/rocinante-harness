@@ -3,6 +3,10 @@
 // ModelPicker — PR-02 dropdown that searches models.dev via
 // /api/v1/models/catalog and lets the user pick a model id (sent
 // to the api on session create).
+//
+// Review followup (10-review.md F5): renders the additional
+// fields introduced in ModelsDevEntry (max_tokens, cache cost,
+// reasoning, thinking_supported, auth_supported).
 
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
@@ -108,6 +112,40 @@ export function ModelPicker({ value, onChange }: ModelPickerProps) {
                       {Math.round(m.context_length / 1000)}K ctx
                     </span>
                   ) : null}
+                  <div className="flex flex-wrap items-center gap-1 text-[10px] text-[var(--color-fg-muted)]">
+                    {m.reasoning ? (
+                      <span
+                        title="Supports reasoning"
+                        className="px-1 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                      >
+                        reasoning
+                      </span>
+                    ) : null}
+                    {m.thinking_supported ? (
+                      <span
+                        title="Supports thinking"
+                        className="px-1 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400"
+                      >
+                        thinking
+                      </span>
+                    ) : null}
+                    {m.cost_cache_read != null || m.cost_cache_write != null ? (
+                      <span
+                        title="Has cache pricing"
+                        className="px-1 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                      >
+                        cache {(m.cost_cache_read ?? 0).toFixed(2)}/{(m.cost_cache_write ?? 0).toFixed(2)}
+                      </span>
+                    ) : null}
+                    {m.auth_supported ? (
+                      <span
+                        title="Supports /login auth"
+                        className="px-1 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400"
+                      >
+                        /login
+                      </span>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>

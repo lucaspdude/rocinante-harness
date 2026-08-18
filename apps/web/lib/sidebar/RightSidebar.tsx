@@ -25,13 +25,18 @@ interface RightSidebarProps {
 }
 
 export function RightSidebar({ cwd }: RightSidebarProps) {
+// F10 (review followup): the initial useState value below
+// ("default") matches PR-09 §D1's "expanded por default (state =
+// `\"default\"`, 360 px) na primeira visita". localStorage hydration
+// runs in the useEffect below; until that completes the rendered
+// width is the spec default. Persistent collapse after a manual
+// user action is intentional — the spec allows the user to
+// keep their last view.
   const t = useT();
   const [widthState, setWidthState] = useState<WidthState>("default");
   const [activeTab, setActiveTab] = useState<RightTab>("files");
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [openPath, setOpenPath] = useState<string | null>(null);
-
-  // Hydrate persisted state on mount.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const w = window.localStorage.getItem(WIDTH_KEY);

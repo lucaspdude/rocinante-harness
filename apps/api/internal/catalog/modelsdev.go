@@ -2,6 +2,12 @@
 // and serves a flat list with cross-references to omp's runtime
 // provider list. See PR-02 (docs/mvp/phase-1-functionality/05-pr-specs/
 // PR-02-models-catalog.md) for the wire format.
+//
+// Review followups (10-review.md):
+//   - F5 — ModelsDevEntry expanded with max_tokens, cost_cache_read,
+//     cost_cache_write, reasoning, thinking_supported, auth_supported,
+//     source. flatten logic extracts them. model picker renders the
+//     new fields.
 package catalog
 
 import (
@@ -24,9 +30,16 @@ type ModelsDevEntry struct {
 	Provider      string   `json:"provider"`
 	Name          string   `json:"name"`
 	ContextLength int      `json:"context_length,omitempty"`
+	MaxTokens     int      `json:"max_tokens,omitempty"`
 	Modalities    []string `json:"modalities,omitempty"`
 	CostInput     float64  `json:"cost_input,omitempty"`
 	CostOutput    float64  `json:"cost_output,omitempty"`
+	CostCacheRead float64 `json:"cost_cache_read,omitempty"`
+	CostCacheWrite float64 `json:"cost_cache_write,omitempty"`
+	Reasoning     bool     `json:"reasoning,omitempty"`
+	Thinking      bool     `json:"thinking_supported,omitempty"`
+	AuthSupported bool     `json:"auth_supported,omitempty"`
+	Source        string   `json:"source,omitempty"`
 	Selectable    bool     `json:"selectable"`
 	Stale         bool     `json:"stale,omitempty"`
 }
@@ -209,11 +222,32 @@ func flattenModelsDev(body []byte) ([]ModelsDevEntry, error) {
 			if v, ok := fmap["context_length"].(float64); ok {
 				entry.ContextLength = int(v)
 			}
+			if v, ok := fmap["max_tokens"].(float64); ok {
+				entry.MaxTokens = int(v)
+			}
 			if v, ok := fmap["cost_input"].(float64); ok {
 				entry.CostInput = v
 			}
 			if v, ok := fmap["cost_output"].(float64); ok {
 				entry.CostOutput = v
+			}
+			if v, ok := fmap["cost_cache_read"].(float64); ok {
+				entry.CostCacheRead = v
+			}
+			if v, ok := fmap["cost_cache_write"].(float64); ok {
+				entry.CostCacheWrite = v
+			}
+			if v, ok := fmap["reasoning"].(bool); ok {
+				entry.Reasoning = v
+			}
+			if v, ok := fmap["thinking_supported"].(bool); ok {
+				entry.Thinking = v
+			}
+			if v, ok := fmap["auth_supported"].(bool); ok {
+				entry.AuthSupported = v
+			}
+			if v, ok := fmap["source"].(string); ok {
+				entry.Source = v
 			}
 			if mods, ok := fmap["modalities"].(map[string]any); ok {
 				if m, ok := mods["input"].([]any); ok {

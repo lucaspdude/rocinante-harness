@@ -19,9 +19,9 @@ func (s stubLoader) OmpVersion() (int, string) { return s.proto, s.ver }
 
 func TestMetaHandlerOmpFound(t *testing.T) {
 	providers := []MetaProviderInfo{
-		{ID: "anthropic", Auth: "paste-key", Authenticated: true},
-		{ID: "openai", Auth: "paste-key", Authenticated: false},
-		{ID: "minimax", Auth: "paste-key", Authenticated: true},
+		{ID: "anthropic", SupportsLogin: true, Authenticated: true, EnvVars: []string{"ANTHROPIC_API_KEY"}},
+		{ID: "openai", SupportsLogin: true, Authenticated: false, EnvVars: []string{"OPENAI_API_KEY"}},
+		{ID: "minimax", SupportsLogin: true, Authenticated: true, EnvVars: []string{"MINIMAX_API_KEY"}},
 	}
 	h := NewMetaHandler(
 		stubLoader{bin: "/usr/local/bin/omp", proto: 2, ver: "omp/17.3.4"},
@@ -58,6 +58,9 @@ func TestMetaHandlerOmpFound(t *testing.T) {
 	}
 	if body.Providers[1].Authenticated {
 		t.Errorf("Providers[1] (openai) Authenticated = true, want false")
+	}
+	if len(body.Providers[0].EnvVars) != 1 || body.Providers[0].EnvVars[0] != "ANTHROPIC_API_KEY" {
+		t.Errorf("Providers[0].EnvVars = %+v", body.Providers[0].EnvVars)
 	}
 }
 

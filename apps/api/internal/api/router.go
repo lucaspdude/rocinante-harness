@@ -1,8 +1,8 @@
 package api
 
 import (
+	"context"
 	"net/http"
-
 	"github.com/go-chi/chi/v5"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
@@ -63,7 +63,9 @@ func NewRouter(deps RouterDeps) http.Handler {
 			h.Jobs = NewLoginJobs()
 		}
 		if h.CmdFactory == nil {
-			h.CmdFactory = OsExec
+			h.CmdFactory = func(ctx context.Context, name string, args []string) CmdIface {
+				return defaultCmdFactory(ctx, name, args...)
+			}
 		}
 		r.Get("/api/v1/login/providers", h.LoginProvidersHandler)
 		r.Post("/api/v1/login/start/{provider}", WrapHandler(middleware.IdempotencyMiddleware(deps.Idempotency), h.LoginStartHandler))
@@ -124,8 +126,12 @@ func NewRouter(deps RouterDeps) http.Handler {
 	if titles == nil {
 		titles = newTitleStore()
 	}
+	var registryForSession ProjectsLister
+	if deps.Projects != nil {
+		registryForSession = deps.Projects.Registry
+	}
 	r.Route("/api/v1/sessions", func(r chi.Router) {
-		r.Post("/", CreateSessionHandler(deps.Manager))
+		r.Post("/", CreateSessionHandler(deps.Manager, registryForSession))
 		r.Get("/", SessionsListHandler(deps.Manager, titles))
 		r.Get("/{id}/events", StreamSessionHandler(deps.Manager))
 		r.Post("/{id}/prompt", WrapHandler(idem, PromptHandler(deps.Manager)))
@@ -147,10 +153,8 @@ func (d RouterDeps) metaHandler() http.HandlerFunc {
 			rows = append(rows, omp.MetaProviderInfo{
 				ID:            p.ID,
 				Name:          p.Name,
-				Auth:          p.Auth,
 				Available:     p.Available,
 				Authenticated: p.Authenticated,
-				EnvVar:        p.EnvVar,
 				HelpURL:       p.HelpURL,
 			})
 		}

@@ -46,7 +46,7 @@ export function ProvidersPanel({
           (p) =>
             p.id.toLowerCase().includes(q) ||
             p.name.toLowerCase().includes(q) ||
-            (p.env_var ?? "").toLowerCase().includes(q)
+            ((p.env_vars?.[0] ?? p.id).toLowerCase().includes(q))
         )
       : providers;
     return [...list].sort((a, b) => {
@@ -179,27 +179,29 @@ function ProviderRow({
           }
         />
         <div className="flex-1 min-w-0">
-          <div className="font-medium flex items-center gap-2">
-            {p.name}
-            {p.help_url && (
-              <a
-                href={p.help_url}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-xs text-[var(--color-fg-muted)] hover:underline"
-              >
-                {t("providers.helpLink")}
-              </a>
-            )}
-            <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-500/10 text-[var(--color-fg-muted)]">
-              {p.auth}
-            </span>
-          </div>
-          {p.env_var && (
-            <div className="text-xs text-[var(--color-fg-muted)] font-mono">
-              {p.env_var}
+          <div className="font-medium flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              {p.name}
+              {p.help_url && (
+                <a
+                  href={p.help_url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-xs text-[var(--color-fg-muted)] hover:underline"
+                >
+                  {t("providers.helpLink")}
+                </a>
+              )}
+              <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-500/10 text-[var(--color-fg-muted)]">
+                {p.supports_login ? "/login" : p.keyless ? "keyless" : "paste-key"}
+              </span>
             </div>
-          )}
+            {(p.env_vars ?? []).map((env) => (
+              <div key={env} className="text-xs text-[var(--color-fg-muted)] font-mono">
+                {env}
+              </div>
+            ))}
+          </div>
         </div>
         <span
           className={
@@ -219,7 +221,7 @@ function ProviderRow({
             autoComplete="off"
             value={draft}
             onChange={(e) => onDraftChange(e.target.value)}
-            placeholder={`${p.env_var ?? p.id}=...`}
+            placeholder={`${p.env_vars?.[0] ?? p.id}=...`}
             className="rh-input font-mono text-sm"
             disabled={saving}
           />
