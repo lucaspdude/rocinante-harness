@@ -61,6 +61,7 @@ export function useFiles(root: string, intervalMs = 5000): FilesList {
     }
     setLoading(true);
     void load();
+    if (intervalMs <= 0) return () => { cancelled = true; };
     const id = setInterval(() => void load(), intervalMs);
     return () => {
       cancelled = true;
@@ -103,13 +104,12 @@ export function useFilesActive(
       }
     }
     setLoading(true);
-    void load();
-    if (active) {
+    if (active && intervalMs > 0) {
       intervalId = setInterval(() => void load(), intervalMs);
     }
     return () => {
       cancelled = true;
-      clearInterval(intervalId);
+      if (intervalId !== undefined) clearInterval(intervalId);
     };
   }, [root, intervalMs, active]);
 
@@ -209,6 +209,7 @@ export function useGitStatus(
     }
     setLoading(true);
     void load();
+    if (intervalMs <= 0) return () => { cancelled = true; };
     const id = setInterval(() => void load(), intervalMs);
     return () => {
       cancelled = true;

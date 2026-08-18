@@ -91,6 +91,7 @@ export function useProviders(intervalMs = 5000): {
       }
     }
     load();
+    if (intervalMs <= 0) return () => { cancelled = true; };
     const id = setInterval(load, intervalMs);
     return () => {
       cancelled = true;
@@ -157,6 +158,7 @@ export function useLoginProviders(intervalMs = 5000): {
       }
     }
     load();
+    if (intervalMs <= 0) return () => { cancelled = true; };
     const id = setInterval(load, intervalMs);
     return () => {
       cancelled = true;
