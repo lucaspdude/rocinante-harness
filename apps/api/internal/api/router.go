@@ -84,6 +84,8 @@ func NewRouter(deps RouterDeps) http.Handler {
 		r.Post("/api/v1/pairing/redeem", WrapHandler(idem, PairingRedeemHandler(deps.AuthState)))
 	}
 
+	// Auth-protected endpoints. Devices + Logout + Pairing-init were
+	// already in the original auth group; we add the rest here.
 	if deps.AuthMW != nil {
 		r.Group(func(r chi.Router) {
 			r.Use(deps.AuthMW)
@@ -91,35 +93,30 @@ func NewRouter(deps RouterDeps) http.Handler {
 			r.Delete("/api/v1/devices/{id}", DeleteDeviceHandler(deps.AuthState))
 			r.Post("/api/v1/logout", LogoutHandler(deps.AuthState))
 			r.Post("/api/v1/pairing/init", PairingInitHandler(deps.AuthState))
-		})
-	}
 
-	// PR-03 + PR-04: projects + clone (auth-protected).
-	if deps.Projects != nil {
-		r.Route("/api/v1/projects", func(r chi.Router) {
-			r.Get("/", deps.Projects.ProjectsHandler)
-			r.Post("/", deps.Projects.ProjectsHandler)
-			r.Patch("/", deps.Projects.PatchHandler)
-			r.Delete("/", deps.Projects.DeleteHandler)
-		})
-		if deps.Clone != nil {
-			r.Route("/api/v1/projects/clone", func(r chi.Router) {
-				r.Post("/", deps.Clone.CloneStartHandler)
-				r.Get("/{jobId}/stream", deps.Clone.CloneStreamHandler)
-				r.Get("/{jobId}/status", deps.Clone.CloneStatusHandler)
-			})
-		}
-	}
+			// PR-03 + PR-04: projects + clone.
+			if deps.Projects != nil {
+				r.Get("/api/v1/projects", deps.Projects.ProjectsHandler)
+				r.Post("/api/v1/projects", deps.Projects.ProjectsHandler)
+				r.Patch("/api/v1/projects", deps.Projects.PatchHandler)
+				r.Delete("/api/v1/projects", deps.Projects.DeleteHandler)
+				if deps.Clone != nil {
+					r.Post("/api/v1/projects/clone", deps.Clone.CloneStartHandler)
+					r.Get("/api/v1/projects/clone/{jobId}/stream", deps.Clone.CloneStreamHandler)
+					r.Get("/api/v1/projects/clone/{jobId}/status", deps.Clone.CloneStatusHandler)
+				}
+			}
 
-	// PR-07: file + git endpoints. Mounted without auth so the
-	// token-system can be reused for runtime-side polling too.
-	if deps.Files != nil {
-		r.Get("/api/v1/files", deps.Files.ListHandler)
-		r.Get("/api/v1/files/content", deps.Files.ContentHandler)
-	}
-	if deps.Git != nil {
-		r.Get("/api/v1/git/repos", deps.Git.ReposHandler)
-		r.Get("/api/v1/git/status", deps.Git.StatusHandler)
+			// PR-07: file + git.
+			if deps.Files != nil {
+				r.Get("/api/v1/files", deps.Files.ListHandler)
+				r.Get("/api/v1/files/content", deps.Files.ContentHandler)
+			}
+			if deps.Git != nil {
+				r.Get("/api/v1/git/repos", deps.Git.ReposHandler)
+				r.Get("/api/v1/git/status", deps.Git.StatusHandler)
+			}
+		})
 	}
 
 	idem := middleware.IdempotencyMiddleware(deps.Idempotency)
