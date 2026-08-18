@@ -159,13 +159,14 @@ func main() {
 				Projects: &api.ProjectsHandlers{
 					Registry:   projectReg,
 					Sessions:   manager,
-					FileAccess: fileAccess,
 				},
 				Clone: &api.CloneHandlers{
 					Jobs:       projects.NewCloneJobs(),
 					Registry:   projectReg,
 					FileAccess: fileAccess,
 				},
+				Files: files.NewFilesHandler(fileAccess),
+				Git:   files.NewGitHandler(fileAccess),
 			}),
 		),
 	))

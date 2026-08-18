@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/files"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/health"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/keystore"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
@@ -26,6 +27,8 @@ type RouterDeps struct {
 	ModelsCatalog *ModelsCatalogHandler
 	Projects      *ProjectsHandlers
 	Clone         *CloneHandlers
+	Files         *files.FilesHandler
+	Git           *files.GitHandler
 }
 
 // WrapHandler chains a middleware around an http.HandlerFunc,
@@ -106,6 +109,17 @@ func NewRouter(deps RouterDeps) http.Handler {
 				r.Get("/{jobId}/status", deps.Clone.CloneStatusHandler)
 			})
 		}
+	}
+
+	// PR-07: file + git endpoints. Mounted without auth so the
+	// token-system can be reused for runtime-side polling too.
+	if deps.Files != nil {
+		r.Get("/api/v1/files", deps.Files.ListHandler)
+		r.Get("/api/v1/files/content", deps.Files.ContentHandler)
+	}
+	if deps.Git != nil {
+		r.Get("/api/v1/git/repos", deps.Git.ReposHandler)
+		r.Get("/api/v1/git/status", deps.Git.StatusHandler)
 	}
 
 	idem := middleware.IdempotencyMiddleware(deps.Idempotency)
