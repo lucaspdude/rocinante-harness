@@ -27,8 +27,8 @@ type ProviderProbe interface {
 // omp's providers.
 type LoginProvidersProvider interface {
 	List() []catalog.LoginProviderInfo
+	Snapshot() []catalog.LoginProviderInfo
 }
-
 // NewStaticLoginProviders returns the fallback list (5 known
 // paste-key providers). Used when omp is unavailable; the runtime
 // wiring in main prefers NewDynamicLoginProviders which falls
@@ -47,7 +47,6 @@ type staticLoginProviders struct {
 // List returns the 5 known providers in stable order with their
 // single canonical env var. Auth method is paste-key because the
 // keystore only handles that today. The list is sorted by id so
-// callers don't have to.
 func (s staticLoginProviders) List() []catalog.LoginProviderInfo {
 	out := []catalog.LoginProviderInfo{
 		providerInfoFromKnown(keystore.Anthropic, s.probe.IsConfigured(string(keystore.Anthropic))),
@@ -59,6 +58,9 @@ func (s staticLoginProviders) List() []catalog.LoginProviderInfo {
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
+
+// Snapshot is a no-op alias to List for the static impl.
+func (s staticLoginProviders) Snapshot() []catalog.LoginProviderInfo { return s.List() }
 
 // providerInfoFromKnown maps the keystore provider name to its
 // LoginProviderInfo. Every known paste-key provider supports the
@@ -116,9 +118,14 @@ func NewLoginProvidersCache(src LoginProvidersProvider) *LoginProvidersCache {
 	return &LoginProvidersCache{src: src}
 }
 
-// Snapshot returns the current provider list, refreshing when the
-// cache is older than 5s.
+// Snapshot returns the cached list (refreshes if older than 5s).
 func (c *LoginProvidersCache) Snapshot() []catalog.LoginProviderInfo {
+	return c.List()
+}
+
+// List is the canonical method (matches the interface). Refreshes
+// the cache when older than 5s, then returns the cached value.
+func (c *LoginProvidersCache) List() []catalog.LoginProviderInfo {
 	c.mu.RLock()
 	if c.cached != nil && time.Since(c.at) < 5*time.Second {
 		defer c.mu.RUnlock()

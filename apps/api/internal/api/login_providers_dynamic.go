@@ -10,7 +10,7 @@ package api
 // Falls back to the provided fallback when omp is unavailable or
 // the spawn fails (timeout, missing binary, non-zero exit).
 //
-// Per `docs/mvp/phase-1-functionality/04-analysis.md` §1.4, omp's
+// Per docs/mvp/phase-1-functionality/04-analysis.md §1.4, omp's
 // `get_login_providers` returns {id, name, available, authenticated}
 // (4 fields) — not the canonical harness shape. We cross-reference
 // with the keystore EnvProbe + the `available` boolean to populate
@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/catalog"
@@ -33,11 +32,11 @@ import (
 // ompLoginProviders is a dynamic provider that talks to a real
 // omp child once per list call. Cache lives outside (LoginProvidersCache).
 type ompLoginProviders struct {
-	bin    string
-	args   []string // default: ["--mode", "rpc-ui"]
-	probe  ProviderProbe
+	bin      string
+	args     []string // default: ["--mode", "rpc-ui"]
+	probe    ProviderProbe
 	fallback LoginProvidersProvider
-	timeout time.Duration // default 5s
+	timeout  time.Duration // default 5s
 }
 
 // NewOMPLoginProviders builds a dynamic provider.
@@ -65,6 +64,10 @@ type ompProviderRaw struct {
 	EnvVar        string `json:"env_var,omitempty"`
 }
 
+// Snapshot delegates to List; the LoginProvidersProvider interface
+// exposes the same shape for cache and dynamic impls.
+func (o *ompLoginProviders) Snapshot() []catalog.LoginProviderInfo { return o.List() }
+
 // List shells out to omp for the live provider list. On any
 // failure (omp missing, timeout, malformed JSON), it returns the
 // fallback catalog so the UI never goes blank.
@@ -90,7 +93,7 @@ func (o *ompLoginProviders) List() []catalog.LoginProviderInfo {
 	}
 
 	// Send the JSONL request: one line, terminated with a newline.
-	if _, err := io.WriteString(stdin, `{"type":"get_login_providers"}` + "\n"); err != nil {
+	if _, err := io.WriteString(stdin, `{"type":"get_login_providers"}`+"\n"); err != nil {
 		_ = stdin.Close()
 		return o.fallback.List()
 	}
@@ -101,10 +104,10 @@ func (o *ompLoginProviders) List() []catalog.LoginProviderInfo {
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		var resp struct {
-			Type    string           `json:"type"`
-			Result  any               `json:"result,omitempty"`
-			List    []ompProviderRaw `json:"list,omitempty"`
-			Error   string           `json:"error,omitempty"`
+			Type   string           `json:"type"`
+			Result any               `json:"result,omitempty"`
+			List   []ompProviderRaw `json:"list,omitempty"`
+			Error  string           `json:"error,omitempty"`
 		}
 		if err := json.Unmarshal(line, &resp); err != nil {
 			continue
@@ -137,7 +140,6 @@ func (o *ompLoginProviders) List() []catalog.LoginProviderInfo {
 		break
 	}
 	if err := cmd.Wait(); err != nil {
-		// Non-zero exit: fall back.
 		if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			// log only when not a timeout
 		}
@@ -180,8 +182,8 @@ func (o *ompLoginProviders) List() []catalog.LoginProviderInfo {
 }
 
 // execCommandContextDynamic is the seam so tests can substitute
-// exec.CommandContext. Defaults to osExec.
-var execCommandContextDynamic = func(ctx context.Context, name string, args ...string) cmdIface {
+// exec.CommandContext. Defaults to defaultCmdFactory.
+var execCommandContextDynamic = func(ctx context.Context, name string, args ...string) CmdIface {
 	return defaultCmdFactory(ctx, name, args...)
 }
 
@@ -231,8 +233,5 @@ func helpURLFor(id string) string {
 	return ""
 }
 
-// Quiet for unused imports.
-var (
-	_ = sync.Mutex{}
-	_ = fmt.Sprint("")
-)
+// keep fmt referenced in trimmed builds.
+var _ = fmt.Sprint("")

@@ -18,7 +18,6 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
-	"github.com/lucaspdude/rocinante-harness/apps/api/internal/catalog"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/envconfig"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/files"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/keystore"
@@ -155,12 +154,10 @@ func main() {
 						),
 					),
 					Jobs:      api.NewLoginJobs(),
-					CmdFactory: api.OsExec,
+					CmdFactory: func(ctx context.Context, name string, args []string) api.CmdIface {
+						return api.OSExec(ctx, name, args...)
+					},
 				},
-				ModelsCatalog: api.NewModelsCatalogHandler(
-					catalog.NewModelsDevCatalog(),
-					api.NewStaticLoginProviders(&keystore.EnvProbe{Store: keystoreStore}),
-				),
 				Projects: &api.ProjectsHandlers{
 					Registry:   projectReg,
 					Sessions:   manager,

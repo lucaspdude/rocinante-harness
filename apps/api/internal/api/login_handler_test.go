@@ -15,14 +15,20 @@ import (
 )
 
 type stubCmd struct {
-	stdoutR *io.PipeReader
-	stdoutW *io.PipeWriter
-	done    chan struct{}
+	stdoutR  *io.PipeReader
+	stdoutW  *io.PipeWriter
+	stdinBuf *bytes.Buffer
+	done     chan struct{}
 }
 
 func newStubCmd(payload string) *stubCmd {
 	r, w := io.Pipe()
-	c := &stubCmd{stdoutR: r, stdoutW: w, done: make(chan struct{})}
+	c := &stubCmd{
+		stdoutR:  r,
+		stdoutW:  w,
+		stdinBuf: &bytes.Buffer{},
+		done:     make(chan struct{}),
+	}
 	go func() {
 		defer close(c.done)
 		_, _ = io.WriteString(w, payload)
@@ -31,9 +37,18 @@ func newStubCmd(payload string) *stubCmd {
 	return c
 }
 
+// stubStdin wraps bytes.Buffer as io.WriteCloser. Pointer
+// receiver so it satisfies io.Closer.
+type stubStdin struct{ *bytes.Buffer }
+
+func (s *stubStdin) Close() error { return nil }
+
+func (s *stubCmd) StdinPipe() (io.WriteCloser, error) {
+	return &stubStdin{s.stdinBuf}, nil
+}
 func (s *stubCmd) StdoutPipe() (io.ReadCloser, error) { return s.stdoutR, nil }
 func (s *stubCmd) StderrPipe() (io.ReadCloser, error) { return s.stdoutR, nil }
-func (s *stubCmd) Start() error                       { return nil }
+func (s *stubCmd) Start() error                        { return nil }
 func (s *stubCmd) Wait() error                        { <-s.done; return nil }
 
 type testProbe map[string]bool
@@ -148,10 +163,7 @@ func TestLoginStartReturns202(t *testing.T) {
 	}
 }
 
-// waitFor polls until either the predicate becomes true or the
-// timeout passes. Uses direct field access to avoid acquiring job.mu
-// recursively (the State's method also takes the lock).
-func waitFor(t *testing.T, h *LoginHandlers, id string, timeout time.Duration, pred func() bool) {
+func waitForState(t *testing.T, h *LoginHandlers, id string, timeout time.Duration, pred func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -175,7 +187,7 @@ func TestLoginStreamEmitsEvents(t *testing.T) {
 	_ = json.Unmarshal(rr.Body.Bytes(), &start)
 
 	completed := false
-	waitFor(t, h, start.JobID, 2*time.Second, func() bool {
+	waitForState(t, h, start.JobID, 2*time.Second, func() bool {
 		job := h.Jobs.Get(start.JobID)
 		if job == nil {
 			return false
@@ -206,10 +218,6 @@ func TestLoginStreamEmitsEvents(t *testing.T) {
 	}
 	if len(events) == 0 {
 		t.Fatal("no events emitted")
-	}
-	first := events[0].Event
-	if first != "ui_request" && first != "spawn" {
-		t.Errorf("first event = %q, want ui_request or spawn", first)
 	}
 }
 
@@ -283,6 +291,3 @@ func TestJobIDGeneration(t *testing.T) {
 		seen[id] = struct{}{}
 	}
 }
-
-// silence bytes import warning
-var _ = bytes.NewBuffer

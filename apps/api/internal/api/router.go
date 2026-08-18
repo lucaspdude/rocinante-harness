@@ -1,8 +1,8 @@
 package api
 
 import (
+	"context"
 	"net/http"
-
 	"github.com/go-chi/chi/v5"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
@@ -63,9 +63,10 @@ func NewRouter(deps RouterDeps) http.Handler {
 			h.Jobs = NewLoginJobs()
 		}
 		if h.CmdFactory == nil {
-			h.CmdFactory = OsExec
+			h.CmdFactory = func(ctx context.Context, name string, args []string) CmdIface {
+				return defaultCmdFactory(ctx, name, args...)
+			}
 		}
-		r.Get("/api/v1/login/providers", h.LoginProvidersHandler)
 		r.Post("/api/v1/login/start/{provider}", WrapHandler(middleware.IdempotencyMiddleware(deps.Idempotency), h.LoginStartHandler))
 		r.Get("/api/v1/login/{jobId}/stream", h.LoginStreamHandler)
 		r.Post("/api/v1/login/{jobId}/ack", h.LoginAckHandler)

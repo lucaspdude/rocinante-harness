@@ -10,7 +10,7 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/catalog"
 )
 
-// nopCloser wraps an io.Reader as io.ReadCloser (no-op close).
+// nopCloser wraps an io.Reader as io.ReadCloser.
 type nopCloser struct{ io.Reader }
 
 func (nopCloser) Close() error { return nil }
@@ -44,7 +44,7 @@ type stubProbe map[string]bool
 
 func (s stubProbe) IsConfigured(name string) bool { return s[name] }
 
-func withExecDynamic(t *testing.T, factory func(context.Context, string, ...string) cmdIface, fn func()) {
+func withExecDynamic(t *testing.T, factory func(context.Context, string, ...string) CmdIface, fn func()) {
 	t.Helper()
 	prev := execCommandContextDynamic
 	execCommandContextDynamic = factory
@@ -67,7 +67,7 @@ func TestDynamicProviderFallsBackOnSpawnFail(t *testing.T) {
 	fallback := NewStaticLoginProviders(probe)
 	dyn := NewOMPLoginProviders("/nonexistent/binary", probe, fallback)
 
-	withExecDynamic(t, func(_ context.Context, _ string, args ...string) cmdIface {
+	withExecDynamic(t, func(_ context.Context, _ string, args ...string) CmdIface {
 		return failingCmd{}
 	}, func() {
 		got := dyn.List()
@@ -92,7 +92,7 @@ func TestDynamicProviderParsesOmpTopLevelList(t *testing.T) {
 
 	payload := `{"type":"response","list":[{"id":"anthropic","name":"Anthropic","available":true,"authenticated":true,"env_var":"ANTHROPIC_API_KEY"},{"id":"openai","name":"OpenAI","available":true,"authenticated":false,"env_var":"OPENAI_API_KEY"},{"id":"kimi-code","name":"Kimi Code","available":true,"authenticated":true}]}` + "\n"
 
-	withExecDynamic(t, func(_ context.Context, _ string, args ...string) cmdIface {
+	withExecDynamic(t, func(_ context.Context, _ string, args ...string) CmdIface {
 		return newBufferCmd(payload)
 	}, func() {
 		got := dyn.List()
@@ -127,7 +127,7 @@ func TestDynamicProviderCrossRefsProbeForAuth(t *testing.T) {
 
 	payload := `{"type":"response","list":[{"id":"openai","name":"OpenAI","available":true,"authenticated":false,"env_var":"OPENAI_API_KEY"}]}` + "\n"
 
-	withExecDynamic(t, func(_ context.Context, _ string, args ...string) cmdIface {
+	withExecDynamic(t, func(_ context.Context, _ string, args ...string) CmdIface {
 		return newBufferCmd(payload)
 	}, func() {
 		got := dyn.List()
@@ -153,7 +153,7 @@ func TestDynamicProviderHandlesResultNestedList(t *testing.T) {
 
 	payload := `{"type":"response","result":{"list":[{"id":"anthropic","name":"Anthropic","available":true,"authenticated":true,"env_var":"ANTHROPIC_API_KEY"}]}}` + "\n"
 
-	withExecDynamic(t, func(_ context.Context, _ string, args ...string) cmdIface {
+	withExecDynamic(t, func(_ context.Context, _ string, args ...string) CmdIface {
 		return newBufferCmd(payload)
 	}, func() {
 		got := dyn.List()
@@ -177,7 +177,7 @@ func TestDynamicProviderHandlesMalformedJSON(t *testing.T) {
 	}
 	payload += "\n"
 
-	withExecDynamic(t, func(_ context.Context, _ string, args ...string) cmdIface {
+	withExecDynamic(t, func(_ context.Context, _ string, args ...string) CmdIface {
 		return newBufferCmd(payload)
 	}, func() {
 		got := dyn.List()
@@ -194,7 +194,7 @@ func TestDynamicProviderHandlesErrorResponse(t *testing.T) {
 
 	payload := `{"type":"response","error":"not supported"}` + "\n"
 
-	withExecDynamic(t, func(_ context.Context, _ string, args ...string) cmdIface {
+	withExecDynamic(t, func(_ context.Context, _ string, args ...string) CmdIface {
 		return newBufferCmd(payload)
 	}, func() {
 		got := dyn.List()

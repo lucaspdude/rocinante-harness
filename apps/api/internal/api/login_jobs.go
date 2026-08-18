@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"io"
 	"sync"
 	"time"
 )
@@ -46,6 +47,7 @@ type LoginJob struct {
 	subs    map[int]chan LoginEvent
 	cancel  context.CancelFunc
 	respond func(LoginAck) error
+	stdin   io.WriteCloser
 }
 
 // LoginJobs is the in-memory store of live login jobs.
@@ -204,6 +206,21 @@ func (j *LoginJob) SetResponder(fn func(LoginAck) error) {
 	j.mu.Lock()
 	j.respond = fn
 	j.mu.Unlock()
+}
+
+// SetStdin wires the omp child's stdin write end so the responder
+// can write extension_ui_response frames back to the child.
+func (j *LoginJob) SetStdin(w io.WriteCloser) {
+	j.mu.Lock()
+	j.stdin = w
+	j.mu.Unlock()
+}
+
+// Stdin returns the job's stdin write end (or nil).
+func (j *LoginJob) Stdin() io.WriteCloser {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.stdin
 }
 
 // Respond invokes the responder (if set).
