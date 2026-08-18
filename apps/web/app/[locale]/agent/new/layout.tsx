@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Sidebar } from "../Sidebar";
+import { Sidebar } from "../../../../lib/sidebar/Sidebar";
 import { TopNav } from "../../../../lib/components/TopNav";
 
 // /agent/new is a transient page: it creates a session and
