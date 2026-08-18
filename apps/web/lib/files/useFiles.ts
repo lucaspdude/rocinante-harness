@@ -2,6 +2,10 @@
 
 // useFiles hook — polls /api/v1/files for directory listing +
 // /api/v1/git/status for changed files. PR-08.
+//
+// Review followup (F6): useFilesActive adds conditional polling
+// (active parameter) so the right sidebar only refetches while the
+// chat session is actively streaming or awaiting.
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -27,11 +31,13 @@ interface GitStatusResponse {
   clean: boolean;
 }
 
-export function useFiles(root: string, intervalMs = 5000): {
+export interface FilesList {
   entries: FileEntry[];
   loading: boolean;
   error: string | null;
-} {
+}
+
+export function useFiles(root: string, intervalMs = 5000): FilesList {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,8 +60,8 @@ export function useFiles(root: string, intervalMs = 5000): {
       }
     }
     setLoading(true);
-    load();
-    const id = setInterval(load, intervalMs);
+    void load();
+    const id = setInterval(() => void load(), intervalMs);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -65,12 +71,59 @@ export function useFiles(root: string, intervalMs = 5000): {
   return { entries, loading, error };
 }
 
-export function useFileContent(root: string, path: string): {
+// useFilesActive is the F6 conditional-polling version. When
+// `active` is false, no setInterval is started; the hook only
+// emits a single initial load (so the UI has data on first
+// render) and stops.
+export function useFilesActive(
+  root: string,
+  active: boolean,
+  intervalMs = 5000
+): FilesList {
+  const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!root) return;
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+    const url = `/api/v1/files?root=${encodeURIComponent(root)}&path=.`;
+    async function load() {
+      try {
+        const res = await api.get<FilesListResponse>(url);
+        if (cancelled) return;
+        setEntries(res.entries ?? []);
+        setError(null);
+      } catch (e: unknown) {
+        const err = e as { body?: { message?: string }; message?: string };
+        if (!cancelled) setError(err.body?.message ?? err.message ?? "failed");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    setLoading(true);
+    void load();
+    if (active) {
+      intervalId = setInterval(() => void load(), intervalMs);
+    }
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [root, intervalMs, active]);
+
+  return { entries, loading, error };
+}
+
+export interface FileContent {
   text: string | null;
   binary: boolean;
   loading: boolean;
   error: string | null;
-} {
+}
+
+export function useFileContent(root: string, path: string): FileContent {
   const [text, setText] = useState<string | null>(null);
   const [binary, setBinary] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -120,12 +173,17 @@ export function useFileContent(root: string, path: string): {
   return { text, binary, loading, error };
 }
 
-export function useGitStatus(cwd: string | null, intervalMs = 5000): {
+export interface GitStatus {
   files: { path: string; status: string }[];
   clean: boolean;
   loading: boolean;
   error: string | null;
-} {
+}
+
+export function useGitStatus(
+  cwd: string | null,
+  intervalMs = 5000
+): GitStatus {
   const [files, setFiles] = useState<{ path: string; status: string }[]>([]);
   const [clean, setClean] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -150,8 +208,8 @@ export function useGitStatus(cwd: string | null, intervalMs = 5000): {
       }
     }
     setLoading(true);
-    load();
-    const id = setInterval(load, intervalMs);
+    void load();
+    const id = setInterval(() => void load(), intervalMs);
     return () => {
       cancelled = true;
       clearInterval(id);

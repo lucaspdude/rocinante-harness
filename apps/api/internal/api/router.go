@@ -67,6 +67,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 				return defaultCmdFactory(ctx, name, args...)
 			}
 		}
+		r.Get("/api/v1/login/providers", h.LoginProvidersHandler)
 		r.Post("/api/v1/login/start/{provider}", WrapHandler(middleware.IdempotencyMiddleware(deps.Idempotency), h.LoginStartHandler))
 		r.Get("/api/v1/login/{jobId}/stream", h.LoginStreamHandler)
 		r.Post("/api/v1/login/{jobId}/ack", h.LoginAckHandler)
@@ -125,8 +126,12 @@ func NewRouter(deps RouterDeps) http.Handler {
 	if titles == nil {
 		titles = newTitleStore()
 	}
+	var registryForSession ProjectsLister
+	if deps.Projects != nil {
+		registryForSession = deps.Projects.Registry
+	}
 	r.Route("/api/v1/sessions", func(r chi.Router) {
-		r.Post("/", CreateSessionHandler(deps.Manager))
+		r.Post("/", CreateSessionHandler(deps.Manager, registryForSession))
 		r.Get("/", SessionsListHandler(deps.Manager, titles))
 		r.Get("/{id}/events", StreamSessionHandler(deps.Manager))
 		r.Post("/{id}/prompt", WrapHandler(idem, PromptHandler(deps.Manager)))

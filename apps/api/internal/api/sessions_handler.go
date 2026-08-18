@@ -1,5 +1,18 @@
 package api
 
+// PR-03 sessions surface + is_orphan + project_path (F7 review
+// followup). The /api/v1/sessions POST response now includes:
+//
+//   is_orphan      — true when no project is registered at the
+//                     requested cwd; false when the project registry
+//                     has it.
+//   project_path   — the registered project path (== cwd when
+//                     the project exists, "" when orphan).
+//
+// The cwd may be set via either `omp_cwd` (legacy) or
+// `project_path` (preferred). Project registration happens through
+// POST /api/v1/projects.
+
 import (
 	"bufio"
 	"encoding/json"
@@ -11,8 +24,22 @@ import (
 )
 
 type sessionRequest struct {
-	OmpCwd     string `json:"omp_cwd"`
+	OmpCwd      string `json:"omp_cwd"`
 	ProjectPath string `json:"project_path,omitempty"`
+}
+
+// sessionResponse wraps omp.SessionRecord with the extra
+// is_orphan + project_path fields.
+type sessionResponse struct {
+	ID              string    `json:"id"`
+	OmpCwd          string    `json:"omp_cwd"`
+	Cwd             string    `json:"cwd"`
+	ProjectPath     string    `json:"project_path,omitempty"`
+	IsOrphan        bool      `json:"is_orphan"`
+	CreatedAt       string    `json:"created_at"`
+	ProtocolVersion int       `json:"protocol_version"`
+	State           string    `json:"state"`
+	LastSeenAt      string    `json:"last_seen_at"`
 }
 
 type errorResponse struct {
@@ -20,12 +47,29 @@ type errorResponse struct {
 	Message string `json:"message,omitempty"`
 }
 
-// CreateSessionHandler spawns a new omp session.
-func CreateSessionHandler(m *omp.Manager) http.HandlerFunc {
+// ProjectsLister is the seam CreateSessionHandler needs to know
+// whether the requested cwd is a registered project. The router
+// ProjectsLister is the seam CreateSessionHandler needs to know
+// whether the requested cwd is a registered project. Implemented
+// by *projects.Registry.
+type ProjectsLister interface {
+	IsRegistered(path string) bool
+}
+
+// CreateSessionHandler spawns a new omp session. It marks the
+// session as orphan or not based on whether the cwd matches a
+// registered project in the ProjectRegistry (F7).
+func CreateSessionHandler(
+	m *omp.Manager,
+	registry ProjectsLister,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req sessionRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, errorResponse{Code: "bad_request", Message: err.Error()})
+			writeJSON(w, http.StatusBadRequest, errorResponse{
+				Code:    "bad_request",
+				Message: err.Error(),
+			})
 			return
 		}
 		cwd := req.OmpCwd
@@ -34,10 +78,30 @@ func CreateSessionHandler(m *omp.Manager) http.HandlerFunc {
 		}
 		rec, err := m.Create(cwd)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, errorResponse{Code: "spawn_failed", Message: err.Error()})
+			writeJSON(w, http.StatusInternalServerError, errorResponse{
+				Code:    "spawn_failed",
+				Message: err.Error(),
+			})
 			return
 		}
-		writeJSON(w, http.StatusCreated, rec)
+		// F7: cross-reference with the project registry.
+		isOrphan := true
+		projectPath := ""
+		if registry != nil && cwd != "" && registry.IsRegistered(cwd) {
+			isOrphan = false
+			projectPath = cwd
+		}
+		writeJSON(w, http.StatusCreated, sessionResponse{
+			ID:              rec.ID,
+			OmpCwd:          rec.OmpCwd,
+			Cwd:             rec.Cwd,
+			ProjectPath:     projectPath,
+			IsOrphan:        isOrphan,
+			CreatedAt:       rec.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+			ProtocolVersion: rec.ProtocolVersion,
+			State:           rec.State,
+			LastSeenAt:      rec.LastSeenAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		})
 	}
 }
 
