@@ -15,6 +15,7 @@ import {
   type Project as RegistryProject,
   type OrphanSession,
 } from "../projects/useProjects";
+import { useCreateProjectDialog } from "../projects/CreateProjectDialogProvider";
 
 interface ActiveSession {
   id: string;
@@ -41,10 +42,22 @@ export function Sidebar({
 }: SidebarProps) {
   const t = useT();
   const lp = useLocalizedPath();
+  const dialog = useCreateProjectDialog();
   const { projects, orphans, loading } = useProjects(5000);
   const [sessions, setSessions] = useState<Record<string, ActiveSession[]>>({});
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [activePath, setActivePath] = useState<string | null>(null);
+
+  // PR-02: shared "+ New project" opener. Prefer the prop override
+  // (legacy callers), else the shared dialog context, else send
+  // the user to /login (the old /agent/new gate is gone).
+  const handleNewProject = onNewProject ?? (() => {
+    if (dialog) {
+      dialog.open();
+    } else {
+      window.location.href = lp("/login");
+    }
+  });
 
   // Read persisted state on mount.
   useEffect(() => {
@@ -128,7 +141,7 @@ export function Sidebar({
         </button>
         <button
           type="button"
-          onClick={onNewProject ?? (() => (window.location.href = lp("/agent/new")))}
+          onClick={handleNewProject}
           className="rh-button-primary px-2 py-1"
           aria-label={t("projects.title")}
           title={t("projects.title")}
@@ -157,11 +170,9 @@ export function Sidebar({
           </button>
           <button
             type="button"
-            onClick={onNewProject ?? (() => (window.location.href = lp("/agent/new")))}
+            onClick={handleNewProject}
             disabled={loading}
             className="rh-button-primary px-2 py-1 text-xs disabled:opacity-50"
-            aria-label={t("projects.title")}
-            title={t("projects.title")}
           >
             + {t("projects.title")}
           </button>
@@ -179,7 +190,7 @@ export function Sidebar({
             </p>
             <button
               type="button"
-              onClick={onNewProject ?? (() => (window.location.href = lp("/agent/new")))}
+              onClick={handleNewProject}
               className="text-xs rh-button-primary px-3 py-1"
             >
               {t("projects.title")}
