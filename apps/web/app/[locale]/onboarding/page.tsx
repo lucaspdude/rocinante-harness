@@ -34,6 +34,7 @@ import { useT, useLocalizedPath } from "../../../lib/i18n";
 import { api } from "../../../lib/api/client";
 import { ProvidersPanel } from "../../../lib/providers/ProvidersPanel";
 import { StepDots } from "../../../lib/components/StepDots";
+import { useToast } from "../../../lib/toast";
 
 interface OnboardingStatus {
   initialized: boolean;
@@ -48,12 +49,12 @@ const STEP_KEYS = ["providers", "passphrase", "done"] as const;
 export default function OnboardingPage() {
   const t = useT();
   const lp = useLocalizedPath();
+  const toast = useToast();
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   const [passphrase, setPassphrase] = useState("");
   const [confirm, setConfirm] = useState("");
   const [locale, setLocale] = useState<"en-US" | "pt-BR">("en-US");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("providers");
   // Whether at least one provider is currently configured.
   // Tracked locally so the gate updates without a round-trip
@@ -82,15 +83,14 @@ export default function OnboardingPage() {
 
   async function submitPassphrase() {
     if (passphrase !== confirm) {
-      setError("passphrases do not match");
+      toast.error("passphrases do not match");
       return;
     }
     if (passphrase.length < 8) {
-      setError("passphrase must be at least 8 characters");
+      toast.error("passphrase must be at least 8 characters");
       return;
     }
     setBusy(true);
-    setError(null);
     try {
       const res = await fetch("/api/v1/onboarding/init", {
         method: "POST",
@@ -98,7 +98,7 @@ export default function OnboardingPage() {
         body: JSON.stringify({ passphrase, locale }),
       });
       if (!res.ok) {
-        setError(`init failed: ${res.status}`);
+        toast.error(`init failed: ${res.status}`);
         return;
       }
       setInitSucceeded(true);
@@ -237,11 +237,6 @@ export default function OnboardingPage() {
                   <option value="pt-BR">pt-BR</option>
                 </select>
               </div>
-              {error && (
-                <p role="alert" className="rh-error">
-                  {error}
-                </p>
-              )}
             </div>
           </div>
           <div className="mt-6 flex items-center justify-between gap-3">

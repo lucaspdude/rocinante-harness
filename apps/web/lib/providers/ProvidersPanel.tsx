@@ -17,9 +17,10 @@
 // (id + name + auth + authenticated + help_url). The previous 5-
 // provider hardcoded list is gone.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { useProviders, type ProviderInfo } from "./useProviders";
+import { useToast } from "../toast";
 
 export function ProvidersPanel({
   onConfiguredCountChange,
@@ -27,12 +28,19 @@ export function ProvidersPanel({
   onConfiguredCountChange?: (count: number) => void;
 }) {
   const t = useT();
+  const toast = useToast();
   const { providers, error, reload, saveKey, deleteKey, saving } =
     useProviders(5000);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [localError, setLocalError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const lastErrorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (error && error !== lastErrorRef.current) {
+      lastErrorRef.current = error;
+      toast.error(error);
+    }
+  }, [error, toast]);
 
   useEffect(() => {
     if (!onConfiguredCountChange) return;
@@ -60,38 +68,34 @@ export function ProvidersPanel({
   function startEdit(p: ProviderInfo) {
     setEditing(p.id);
     setDraft("");
-    setLocalError(null);
   }
 
   function cancelEdit() {
     setEditing(null);
     setDraft("");
-    setLocalError(null);
   }
 
   async function save(p: ProviderInfo) {
     if (!draft.trim()) {
-      setLocalError("empty");
+      toast.error("empty");
       return;
     }
-    setLocalError(null);
     try {
       await saveKey(p.id, draft.trim());
       setEditing(null);
       setDraft("");
       reload();
     } catch (e) {
-      setLocalError(e instanceof Error ? e.message : String(e));
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 
   async function clear(p: ProviderInfo) {
-    setLocalError(null);
     try {
       await deleteKey(p.id);
       reload();
     } catch (e) {
-      setLocalError(e instanceof Error ? e.message : String(e));
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -101,11 +105,7 @@ export function ProvidersPanel({
         <h3 className="text-sm font-medium mb-3">
           {t("providers.checklist")}
         </h3>
-        {(error || localError) && (
-          <p role="alert" className="rh-error mb-3">
-            {localError ?? error}
-          </p>
-        )}
+
         <input
           type="search"
           value={search}

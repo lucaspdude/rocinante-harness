@@ -352,5 +352,10 @@
   "clis.copy": "Copiar",
   "clis.copied": "Copiado",
   "clis.close": "Fechar",
-  "clis.logStream": "Log de instalação"
+  "clis.logStream": "Log de instalação",
+  "toast.dismiss": "Dispensar",
+  "toast.errorBadge": "Erro",
+  "toast.warningBadge": "Aviso",
+  "toast.infoBadge": "Info",
+  "toast.successBadge": "Sucesso"
 }

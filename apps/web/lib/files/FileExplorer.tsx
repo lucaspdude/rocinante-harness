@@ -4,8 +4,9 @@
 // Click a file to push it onto the tab bar; drill-down is a
 // follow-up.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
+import { useToast } from "../toast";
 import { useFiles, type FileEntry } from "./useFiles";
 
 interface FileExplorerProps {
@@ -15,8 +16,17 @@ interface FileExplorerProps {
 
 export function FileExplorer({ root, onOpenFile }: FileExplorerProps) {
   const t = useT();
+  const toast = useToast();
   const { entries, error, loading } = useFiles(root, 5000);
   const [refreshTick, setRefreshTick] = useState(0);
+  const lastErrorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (error && error !== lastErrorRef.current) {
+      lastErrorRef.current = error;
+      toast.error(error);
+    }
+  }, [error, toast]);
 
   if (!root) {
     return (
@@ -47,10 +57,6 @@ export function FileExplorer({ root, onOpenFile }: FileExplorerProps) {
       {loading && entries.length === 0 ? (
         <p className="text-xs text-[var(--color-fg-muted)]">
           {t("common.loading")}
-        </p>
-      ) : error ? (
-        <p role="alert" className="rh-error">
-          {error}
         </p>
       ) : entries.length === 0 ? (
         <p className="text-xs text-[var(--color-fg-muted)]">

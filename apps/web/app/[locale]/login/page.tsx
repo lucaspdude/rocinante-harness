@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useT, useLocalizedPath } from "../../../lib/i18n";
-import { api } from "../../../lib/api/client";
+import { api, ApiClientError } from "../../../lib/api/client";
 import { tokenStore } from "../../../lib/auth/token-store";
+import { useToast } from "../../../lib/toast";
 
 interface LoginResponse {
   access: string;
@@ -14,14 +15,13 @@ interface LoginResponse {
 export default function LoginPage() {
   const t = useT();
   const lp = useLocalizedPath();
+  const toast = useToast();
   const [passphrase, setPassphrase] = useState("");
   const [deviceName, setDeviceName] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
     setBusy(true);
     try {
       const res = await api.post<LoginResponse>(
@@ -43,11 +43,12 @@ export default function LoginPage() {
         window.location.href = lp("/agent/new");
       }
     } catch (err: unknown) {
-      const code = (err as { body?: { code?: string } }).body?.code;
+      const code =
+        err instanceof ApiClientError ? err.body.code : undefined;
       if (code === "auth_invalid_passphrase") {
-        setError(t("login.invalidPassphrase"));
+        toast.error(t("login.invalidPassphrase"));
       } else {
-        setError(t("login.networkError"));
+        toast.error(t("login.networkError"));
       }
     } finally {
       setBusy(false);
@@ -71,10 +72,10 @@ export default function LoginPage() {
                 id="passphrase"
                 name="passphrase"
                 type="password"
-                autoComplete="current-password"
                 value={passphrase}
                 onChange={(e) => setPassphrase(e.target.value)}
                 required
+                autoComplete="current-password"
                 className="rh-input"
               />
             </div>
@@ -91,11 +92,6 @@ export default function LoginPage() {
                 className="rh-input"
               />
             </div>
-            {error && (
-              <p role="alert" className="rh-error">
-                {error}
-              </p>
-            )}
             <button
               type="submit"
               disabled={busy}
