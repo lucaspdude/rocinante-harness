@@ -12,10 +12,11 @@ import { useT } from "../i18n";
 import { FileExplorer } from "../files/FileExplorer";
 import { GitChangesPanel } from "../files/GitChangesPanel";
 import { FileViewer } from "../files/FileViewer";
+import { SearchPanel } from "../files/SearchPanel";
 import { TabBar, loadTabs, type Tab } from "../files/TabBar";
 
 export type WidthState = "collapsed" | "default" | "wide";
-export type RightTab = "files" | "changes";
+export type RightTab = "files" | "changes" | "search";
 
 const WIDTH_KEY = "rh:right-sidebar-state";
 const TAB_KEY = "rh:right-sidebar-tab";
@@ -23,7 +24,6 @@ const TAB_KEY = "rh:right-sidebar-tab";
 interface RightSidebarProps {
   cwd: string | null;
 }
-
 export function RightSidebar({ cwd }: RightSidebarProps) {
 // F10 (review followup): the initial useState value below
 // ("default") matches PR-09 §D1's "expanded por default (state =
@@ -42,12 +42,13 @@ export function RightSidebar({ cwd }: RightSidebarProps) {
     const w = window.localStorage.getItem(WIDTH_KEY);
     if (w === "collapsed" || w === "wide") setWidthState(w);
     const tab = window.localStorage.getItem(TAB_KEY);
-    if (tab === "files" || tab === "changes") setActiveTab(tab);
+    if (tab === "files" || tab === "changes" || tab === "search") setActiveTab(tab);
     if (cwd) {
       const stored = loadTabs(cwd);
       if (stored.length > 0) {
-        setTabs(stored);
         const last = stored[stored.length - 1]?.path ?? null;
+        setTabs(stored);
+
         setOpenPath(last);
       }
     }
@@ -113,6 +114,15 @@ export function RightSidebar({ cwd }: RightSidebarProps) {
         </button>
         <button
           type="button"
+          onClick={() => onRailClick("search")}
+          aria-label={t("rightSidebar.rail.search")}
+          title={t("rightSidebar.rail.search")}
+          className="rh-button-ghost px-2 py-1 text-base"
+        >
+          🔎
+        </button>
+        <button
+          type="button"
           onClick={() => setWidthState("default")}
           className="rh-button-ghost px-2 py-1 text-xs"
           aria-label={t("rightSidebar.expand")}
@@ -159,6 +169,20 @@ export function RightSidebar({ cwd }: RightSidebarProps) {
           >
             {t("rightSidebar.rail.changes")}
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "search"}
+            data-active={activeTab === "search"}
+            onClick={() => onRailClick("search")}
+            className={`px-2 py-1 text-sm border-b-2 ${
+              activeTab === "search"
+                ? "border-blue-500 font-medium"
+                : "border-transparent text-[var(--color-fg-muted)]"
+            }`}
+          >
+            {t("rightSidebar.rail.search")}
+          </button>
         </div>
         <button
           type="button"
@@ -180,6 +204,18 @@ export function RightSidebar({ cwd }: RightSidebarProps) {
           />
         )}
         {activeTab === "changes" && <GitChangesPanel cwd={cwd} />}
+        {activeTab === "search" && (
+          <SearchPanel
+            root={cwd}
+            onOpenFile={(path, name) => {
+              if (!tabs.some((tb) => tb.path === path)) {
+                setTabs([...tabs, { path, name }]);
+              }
+              setActiveTab("files");
+              setOpenPath(path);
+            }}
+          />
+        )}
       </div>
     </aside>
   );

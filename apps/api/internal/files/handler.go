@@ -11,6 +11,8 @@ package files
 //   GET   /api/v1/cwd/browse?path=...              -> DirectoryPicker
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -444,6 +446,244 @@ func (h *FilesHandler) BrowseHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// SearchRequest is the wire shape of POST /api/v1/search.
+type SearchRequest struct {
+	Root    string         `json:"root"`
+	Pattern string         `json:"pattern"`
+	Options SearchOptions  `json:"options"`
+}
+
+// SearchOptions captures the optional flags the panel exposes.
+type SearchOptions struct {
+	Regex         bool   `json:"regex"`
+	MaxResults    int    `json:"maxResults"`
+	CaseSensitive bool   `json:"caseSensitive"`
+	FileGlob      string `json:"fileGlob"`
+}
+
+// SearchMatch is one row of a ripgrep match.
+type SearchMatch struct {
+	Path   string `json:"path"`
+	Line   int    `json:"line"`
+	Column int    `json:"column"`
+	Match  string `json:"match"`
+}
+
+// SearchResponse is the wire shape returned by POST /api/v1/search.
+// Partial=true when ripgrep was killed by the 5s timeout; the
+// caller surfaces search.partial to the user.
+type SearchResponse struct {
+	Results []SearchMatch `json:"results"`
+	Partial bool          `json:"partial"`
+}
+
+// defaultMaxSearchResults caps how many matches a single call
+// returns; the web UI requests 200 by default but a malicious /
+// buggy caller could ask for more. Cap at 1000.
+const defaultMaxSearchResults = 1000
+
+// SearchHandler is POST /api/v1/search. Body: {root, pattern,
+// options:{regex,maxResults,caseSensitive,fileGlob}}. Spawns
+// `rg --json` with a 5s timeout, parses line-by-line, caps at
+// options.maxResults (or 200 default, 1000 hard cap). On
+// ripgrep-not-installed returns 503 {code:"ripgrep_not_installed"};
+// on timeout returns 200 with {partial:true, results:[...so far]}.
+func (h *FilesHandler) SearchHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "use POST")
+		return
+	}
+	var req SearchRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_query", "malformed JSON body")
+		return
+	}
+	if req.Root == "" {
+		writeErr(w, http.StatusBadRequest, "invalid_query", "root required")
+		return
+	}
+	if req.Pattern == "" {
+		writeErr(w, http.StatusBadRequest, "invalid_query", "pattern required")
+		return
+	}
+	root := req.Root
+	target, err := Resolve(root, ".")
+	if err != nil {
+		writeErr(w, http.StatusForbidden, "path_outside_allowlist", err.Error())
+		return
+	}
+	if !h.Access.IsAllowed(target) {
+		writeErr(w, http.StatusForbidden, "path_outside_allowlist", "root not allowed")
+		return
+	}
+	maxResults := req.Options.MaxResults
+	if maxResults <= 0 {
+		maxResults = 200
+	}
+	if maxResults > defaultMaxSearchResults {
+		maxResults = defaultMaxSearchResults
+	}
+	matches, partial, searchErr := runRipgrep(target, req.Pattern, req.Options, maxResults)
+	if searchErr != nil {
+		if errors.Is(searchErr, errRipgrepMissing) {
+			writeErr(w, http.StatusServiceUnavailable, "ripgrep_not_installed", "rg binary not found on PATH")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "search_failed", searchErr.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, SearchResponse{Results: matches, Partial: partial})
+}
+
+// errRipgrepMissing is the sentinel returned by runRipgrep when the
+// `rg` binary is not on PATH.
+var errRipgrepMissing = errors.New("ripgrep_not_installed")
+
+// runRipgrep spawns `rg --json [flags] -e PATTERN ROOT`, parses
+// one JSON object per stdout line, caps the result slice at
+// maxResults, and returns partial=true when the 5s context
+// deadline was hit. errors.Is(err, errRipgrepMissing) when `rg` is
+// absent on PATH (covers *exec.Error + fs.ErrNotExist).
+func runRipgrep(root, pattern string, opts SearchOptions, maxResults int) ([]SearchMatch, bool, error) {
+	ctx, cancel := newSearchTimeout()
+	defer cancel()
+	args := []string{"--json", "--no-config", "--no-heading", "--no-messages"}
+	if opts.Regex {
+		args = append(args, "--regexp")
+	} else {
+		args = append(args, "--fixed-strings")
+	}
+	if opts.CaseSensitive {
+		args = append(args, "--case-sensitive")
+	} else {
+		args = append(args, "-i")
+	}
+	if opts.FileGlob != "" {
+		args = append(args, "--glob", opts.FileGlob)
+	}
+	args = append(args, "-e", pattern, root)
+	cmd := exec.CommandContext(ctx, "rg", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, false, err
+	}
+	if err := cmd.Start(); err != nil {
+		if isMissingBinaryErr(err) {
+			return nil, false, errRipgrepMissing
+		}
+		return nil, false, err
+	}
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	out := make([]SearchMatch, 0, maxResults)
+	partial := false
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		m, ok := parseRipgrepMatch(line, root)
+		if !ok {
+			continue
+		}
+		out = append(out, m)
+
+		if len(out) >= maxResults {
+			// Drain is not necessary: the cmd is killed by the
+			// deadline once we return. We rely on ctx to abort
+			// the goroutine still blocked on stdout.Read.
+			break
+		}
+	}
+	waitErr := cmd.Wait()
+	if waitErr != nil {
+		// DeadlineExceeded → partial; anything else is real.
+		if ctx.Err() == context.DeadlineExceeded {
+			partial = true
+		} else if isMissingBinaryErr(waitErr) {
+			return nil, false, errRipgrepMissing
+		} else {
+			// rg exits 1 when no matches were found; treat as a
+			// normal empty result, not an error.
+			var exitErr *exec.ExitError
+			if errors.As(waitErr, &exitErr) {
+				if len(out) == 0 {
+					return out, false, nil
+				}
+				// Got some matches before rg exited non-zero;
+				// still treat as a complete result.
+				return out, false, nil
+			}
+			return nil, false, waitErr
+		}
+	}
+	return out, partial, nil
+}
+
+// parseRipgrepMatch decodes one `rg --json` match line and
+// projects it to the wire shape. Returns ok=false for non-match
+// events (begin/end/summary).
+func parseRipgrepMatch(line []byte, root string) (SearchMatch, bool) {
+	var raw struct {
+		Type string `json:"type"`
+		Data struct {
+			Path struct {
+				Text string `json:"text"`
+			} `json:"path"`
+			LineNumber int `json:"line_number"`
+			Submatches []struct {
+				Match struct {
+					Text string `json:"text"`
+				} `json:"match"`
+				Start int `json:"start"`
+			} `json:"submatches"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(line, &raw); err != nil {
+		return SearchMatch{}, false
+	}
+	if raw.Type != "match" {
+		return SearchMatch{}, false
+	}
+	if raw.Data.Path.Text == "" || len(raw.Data.Submatches) == 0 {
+		return SearchMatch{}, false
+	}
+	sub := raw.Data.Submatches[0]
+	path := raw.Data.Path.Text
+	// Strip the root prefix so the wire path is project-relative
+	// (matches the convention of the file-listing endpoint).
+	if root != "" {
+		if rel, ok := strings.CutPrefix(path, root); ok {
+			path = rel
+		} else if rel, ok := strings.CutPrefix(path, root+"/"); ok {
+			path = rel
+		}
+		path = filepath.ToSlash(strings.TrimPrefix(path, "/"))
+	}
+	return SearchMatch{
+		Path:   path,
+		Line:   raw.Data.LineNumber,
+		Column: sub.Start + 1,
+		Match:  sub.Match.Text,
+	}, true
+}
+
+// isMissingBinaryErr reports whether err from exec.Command.Start
+// / Wait means the binary isn't on PATH. exec.LookPath returns
+// *exec.Error with Err == fs.ErrNotExist when the binary is
+// absent; that surfaces as the cmd's start error.
+// isMissingBinaryErr reports whether err from exec.Command.Start
+// / Wait means the binary isn't on PATH. exec.LookPath surfaces
+// this as *exec.Error with a string-wrapped message — not
+// fs.ErrNotExist. We match on the error type only; the cmd was
+// constructed with a known binary name ("rg"), so any *exec.Error
+// from Start() means "binary missing".
+func isMissingBinaryErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var execErr *exec.Error
+	return errors.As(err, &execErr)
+}
 // GitHandler is mounted at /api/v1/git/*.
 type GitHandler struct {
 	Access *FileAccess

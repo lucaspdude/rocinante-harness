@@ -126,6 +126,8 @@ if deps.AuthState != nil {
 				r.Patch("/api/v1/files/content", deps.Files.WriteHandler)
 				// PR-02: folder picker mount.
 				r.Get("/api/v1/cwd/browse", deps.Files.BrowseHandler)
+				// PR-06: ripgrep-backed search across project tree.
+				r.Post("/api/v1/search", deps.Files.SearchHandler)
 			}
 			// PR-06: CLI tools install + device-code login.
 			if deps.CliTools != nil {
