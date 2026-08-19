@@ -200,6 +200,7 @@ func main() {
 			Keys:    sshpkg.NewKeyStore(db),
 			Servers: sshpkg.NewServerStore(db),
 			AuthMW:  authMW,
+			Home:    home,
 		}
 		mux.Handle("/api/v1/ssh/", middleware.TLSHandler(sshHandler.Routes()))
 	}

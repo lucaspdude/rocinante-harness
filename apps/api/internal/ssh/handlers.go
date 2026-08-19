@@ -8,6 +8,8 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -15,11 +17,15 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// Handler bundles the routes.
+// Handler bundles the routes. Home is the absolute path to the
+// user's $HOME directory (used to resolve ~/.ssh); it falls back
+// to os.UserHomeDir() at runtime if left empty so existing tests
+// that build a Handler literal without Home keep working.
 type Handler struct {
 	Keys    *KeyStore
 	Servers *ServerStore
 	AuthMW  func(http.Handler) http.Handler
+	Home    string
 }
 
 // Routes returns the handlers wired with the auth middleware.
@@ -115,6 +121,27 @@ func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	privPEM := marshalED25519OpenSSH(priv)
+	// PR-04: also write the private key file (chmod 0o600) and
+	// append a matching `Host <alias>` block to ~/.ssh/config so
+	// the user does not have to ssh-keygen + edit config by hand.
+	// These side effects only run when sshDirFor returns a valid
+	// path (i.e. the host has a writable $HOME) — otherwise we
+	// return the metadata + private key as before so callers can
+	// still import the key manually.
+	sshDir, sshErr := sshDirFor(h.Home)
+	if sshErr == nil {
+		identity := identityPath(sshDir, key.Label)
+		if err := WritePrivateKey(identity, privPEM); err != nil {
+			writeJSON(w, http.StatusInternalServerError, errorJSON{Code: "write_failed", Message: err.Error()})
+			return
+		}
+		if block, ok := providerConfigBlock(req.Provider, identity); ok {
+			if err := AppendConfigBlock(block); err != nil {
+				writeJSON(w, http.StatusInternalServerError, errorJSON{Code: "config_write_failed", Message: err.Error()})
+				return
+			}
+		}
+	}
 	writeJSON(w, http.StatusCreated, createKeyResponse{
 		ID:          key.ID,
 		Label:       key.Label,
@@ -213,6 +240,100 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }
+
+// sshDirFor resolves ~/.ssh for the current handler. If Home was
+// injected at construction we honour it; otherwise we fall back to
+// os.UserHomeDir(). On any failure the returned error is non-nil
+// and createKey must skip the file-system side effects (returning
+// only the key metadata + private key PEM to the caller).
+func sshDirFor(handlerHome string) (string, error) {
+	home := handlerHome
+	if home == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		home = h
+	}
+	if home == "" {
+		return "", errors.New("home dir is empty")
+	}
+	return filepath.Join(home, ".ssh"), nil
+}
+
+// identityPath joins sshDir with the canonical filename for a key
+// label. The label is sanitized so a user-supplied label like
+// "../etc/passwd" cannot escape the directory.
+func identityPath(sshDir, label string) string {
+	safe := sanitizeLabel(label)
+	return filepath.Join(sshDir, "id_ed25519_"+safe)
+}
+
+// sanitizeLabel keeps alphanumerics, dash, underscore and dot; any
+// other rune is replaced with an underscore. This is enough to
+// neutralise path-traversal attempts without rejecting the common
+// "github-key" or "azure.2024" shapes.
+func sanitizeLabel(label string) string {
+	out := make([]rune, 0, len(label))
+	for _, r := range label {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '-', r == '_', r == '.':
+			out = append(out, r)
+		default:
+			out = append(out, '_')
+		}
+	}
+	if len(out) == 0 {
+		return "key"
+	}
+	return string(out)
+}
+
+// providerConfigBlock maps a provider id (the same strings the web
+// uses in its GitSshPanel: "github", "gitlab", "azureDevops") to
+// the matching ConfigBlock. Unknown providers produce ok=false so
+// createKey only writes the key file (the user can wire it up
+// manually for custom hosts).
+func providerConfigBlock(provider, identityFile string) (ConfigBlock, bool) {
+	switch provider {
+	case "github":
+		return ConfigBlock{
+			Aliases:               []string{"github.com"},
+			HostName:              "github.com",
+			User:                  "git",
+			IdentityFile:          identityFile,
+			IdentitiesOnly:        boolPtr(true),
+			StrictHostKeyChecking: "accept-new",
+			Port:                  "22",
+		}, true
+	case "gitlab":
+		return ConfigBlock{
+			Aliases:               []string{"gitlab.com"},
+			HostName:              "gitlab.com",
+			User:                  "git",
+			IdentityFile:          identityFile,
+			IdentitiesOnly:        boolPtr(true),
+			StrictHostKeyChecking: "accept-new",
+			Port:                  "22",
+		}, true
+	case "azureDevops":
+		return ConfigBlock{
+			Aliases:               []string{"dev.azure.com", "vs-ssh.visualstudio.com"},
+			HostName:              "dev.azure.com",
+			User:                  "git",
+			IdentityFile:          identityFile,
+			IdentitiesOnly:        boolPtr(true),
+			StrictHostKeyChecking: "accept-new",
+			Port:                  "22",
+		}, true
+	}
+	return ConfigBlock{}, false
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 // marshalED25519OpenSSH encodes an ed25519 private key as the
 // canonical OpenSSH-format PEM block. We implement the wire format
