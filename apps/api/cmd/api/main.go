@@ -26,6 +26,8 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/projects"
 	sshpkg "github.com/lucaspdude/rocinante-harness/apps/api/internal/ssh"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/storage"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/clitools"
+
 )
 
 // apiVersion is set at build time via -ldflags "-X main.apiVersion=<tag>".
@@ -192,6 +194,9 @@ func main() {
 				},
 				Files: files.NewFilesHandler(fileAccess, home),
 				Git:   files.NewGitHandler(fileAccess),
+				CliTools: &api.CliToolsHandler{
+					Manager: clitools.NewManager(),
+				},
 			}),
 		),
 	))

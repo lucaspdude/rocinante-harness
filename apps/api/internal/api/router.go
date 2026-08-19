@@ -29,7 +29,9 @@ type RouterDeps struct {
 	Clone         *CloneHandlers
 	Files         *files.FilesHandler
 	Git           *files.GitHandler
+	CliTools      *CliToolsHandler
 }
+
 
 // WrapHandler chains a middleware around an http.HandlerFunc,
 // returning an http.HandlerFunc so it fits chi's strict signatures.
@@ -115,6 +117,16 @@ func NewRouter(deps RouterDeps) http.Handler {
 				r.Get("/api/v1/files/content", deps.Files.ContentHandler)
 				// PR-02: folder picker mount.
 				r.Get("/api/v1/cwd/browse", deps.Files.BrowseHandler)
+			}
+			// PR-06: CLI tools install + device-code login.
+			if deps.CliTools != nil {
+				ct := deps.CliTools
+				r.Get("/api/v1/cli-tools", ct.ListHandler)
+				r.Get("/api/v1/cli-tools/{id}/status", ct.StatusHandler)
+				r.Post("/api/v1/cli-tools/{id}/install", ct.InstallHandler)
+				r.Get("/api/v1/cli-tools/{id}/install/{jobId}/stream", ct.InstallStreamHandler)
+				r.Post("/api/v1/cli-tools/{id}/login/start", ct.LoginStartHandler)
+				r.Post("/api/v1/cli-tools/{id}/login/{jobId}/ack", ct.AckLoginHandler)
 			}
 			// PR-02: /api/v1/me — exposes home/user/host to the picker.
 			r.Get("/api/v1/me", MeHandler)
