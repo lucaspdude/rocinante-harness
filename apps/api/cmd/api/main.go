@@ -18,6 +18,7 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/catalog"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/envconfig"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/files"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/keystore"
@@ -27,7 +28,10 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/storage"
 )
 
-const apiVersion = "1.0.0"
+// apiVersion is set at build time via -ldflags "-X main.apiVersion=<tag>".
+// The default "1.0.0" is used only for dev builds where ldflags did
+// not inject a value; release.yml always passes the current tag.
+var apiVersion = "1.0.0"
 
 type staticMetaLoader struct {
 	ompBin          string
@@ -142,7 +146,21 @@ func main() {
 	if home == "" {
 		home = "/root"
 	}
-	fileAccess.QuietAllow(home)
+	// PR-03: models.dev catalog handler. Refresh kicks off in the
+	// background so the first GET /api/v1/models/catalog warms the
+	// cache without blocking startup. Shares the same login-providers
+	// cache as /api/v1/login so the cross-ref annotations match.
+	loginProvidersCache := api.NewLoginProvidersCache(
+		api.NewOMPLoginProviders(
+			resolvedBin,
+			&keystore.EnvProbe{Store: keystoreStore},
+			api.NewStaticLoginProviders(&keystore.EnvProbe{Store: keystoreStore}),
+		),
+	)
+	modelsCatalogHandler := api.NewModelsCatalogHandler(
+		catalog.NewModelsDevCatalog(),
+		loginProvidersCache,
+	)
 	mux.Handle("/", middleware.TLSHandler(
 		middleware.CORSHandler(middleware.CORSConfig{})(
 			api.NewRouter(api.RouterDeps{
@@ -155,22 +173,17 @@ func main() {
 				ShareDir:     effectiveShareDir,
 				ProviderKeys: keystoreStore,
 				LoginHandlers: &api.LoginHandlers{
-					Providers: api.NewLoginProvidersCache(
-						api.NewOMPLoginProviders(
-							resolvedBin,
-							&keystore.EnvProbe{Store: keystoreStore},
-							api.NewStaticLoginProviders(&keystore.EnvProbe{Store: keystoreStore}),
-						),
-					),
-					Jobs:      api.NewLoginJobs(),
+					Providers:  loginProvidersCache,
+					Jobs:       api.NewLoginJobs(),
 					CmdFactory: func(ctx context.Context, name string, args []string) api.CmdIface {
 						return api.OSExec(ctx, name, args...)
 					},
 				},
+				ModelsCatalog: modelsCatalogHandler,
 				Projects: &api.ProjectsHandlers{
-					Registry:   projectReg,
-					Sessions:   manager,
-					Home:       home,
+					Registry: projectReg,
+					Sessions: manager,
+					Home:     home,
 				},
 				Clone: &api.CloneHandlers{
 					Jobs:       projects.NewCloneJobs(),

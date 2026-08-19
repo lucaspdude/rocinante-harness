@@ -47,7 +47,7 @@ export interface CloneStartResponse {
   target: string;
 }
 
-export function useProjects(intervalMs = 5000): {
+export function useProjects(intervalMs = 5000, enabled = true): {
   projects: Project[];
   orphans: OrphanSession[];
   loading: boolean;
@@ -65,6 +65,7 @@ export function useProjects(intervalMs = 5000): {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     async function load() {
       try {
@@ -89,7 +90,7 @@ export function useProjects(intervalMs = 5000): {
       cancelled = true;
       clearInterval(id);
     };
-  }, [intervalMs, tick]);
+  }, [intervalMs, enabled, tick]);
 
   const reload = useCallback(() => setTick((n) => n + 1), []);
 

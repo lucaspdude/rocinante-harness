@@ -15,7 +15,7 @@ interface Props {
 
 export function ProjectPickerDialog({ open, onClose, onPick }: Props) {
   const t = useT();
-  const { projects, loading } = useProjects(open ? 5000 : 0);
+  const { projects, loading } = useProjects(5000, open);
   const [query, setQuery] = useState("");
 
   useEffect(() => {

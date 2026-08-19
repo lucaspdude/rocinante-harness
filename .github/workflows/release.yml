@@ -24,6 +24,7 @@ jobs:
       - name: Build api
         run: |
           mkdir -p ../../dist
+          VERSION=$(git describe --tags --always)
           for platform in linux:amd64 linux:arm64 darwin:amd64 darwin:arm64 windows:amd64; do
             os=$(echo "$platform" | cut -d: -f1)
             arch=$(echo "$platform" | cut -d: -f2)
@@ -31,7 +32,7 @@ jobs:
             [ "$os" = "windows" ] && ext=".exe"
             out="../../dist/api-${os}-${arch}${ext}"
             GOOS=$os GOARCH=$arch \
-              go build -trimpath -ldflags="-s -w" \
+              go build -trimpath -ldflags="-s -w -X main.apiVersion=$VERSION" \
                 -o "$out" ./cmd/api
           done
       - name: Upload artifacts
