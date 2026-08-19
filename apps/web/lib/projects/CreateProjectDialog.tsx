@@ -53,7 +53,7 @@ export function CreateProjectDialog({
   const t = useT();
   const { me } = useMe();
   const home = me?.home ?? "/root";
-  const { register, startClone, projects } = useProjects(open ? 5000 : 0);
+  const { register, startClone, projects } = useProjects(5000, open);
   const [tab, setTab] = useState<TabId>(initialTab ?? "folder");
   const [folderPath, setFolderPath] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);

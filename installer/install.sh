@@ -196,6 +196,12 @@ Type=simple
 WorkingDirectory=$SHARE_DIR
 ExecStart=$SHARE_DIR/bin/api --share-dir $SHARE_DIR --port 30179 --bind ${ROCINANTE_HOST:-127.0.0.1}
 EnvironmentFile=$ENV_FILE
+# systemd does not export HOME by default; envconfig.ShareDir()
+# falls through to os.UserHomeDir() and warns "$HOME is not defined"
+# when it is unset. Pin HOME=/root so ShareDir() resolves to
+# /root/.local/share/rocinante-harness — where the installer
+# already wrote .ed25519 + roc-harness.db.
+Environment=HOME=/root
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
