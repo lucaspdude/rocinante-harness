@@ -26,22 +26,30 @@ import (
 // endpoint. Models.dev nests the data as {provider: {models: {id: ...}}};
 // we flatten to a single array.
 type ModelsDevEntry struct {
-	ID            string   `json:"id"`
-	Provider      string   `json:"provider"`
-	Name          string   `json:"name"`
-	ContextLength int      `json:"context_length,omitempty"`
-	MaxTokens     int      `json:"max_tokens,omitempty"`
-	Modalities    []string `json:"modalities,omitempty"`
-	CostInput     float64  `json:"cost_input,omitempty"`
-	CostOutput    float64  `json:"cost_output,omitempty"`
-	CostCacheRead float64 `json:"cost_cache_read,omitempty"`
-	CostCacheWrite float64 `json:"cost_cache_write,omitempty"`
-	Reasoning     bool     `json:"reasoning,omitempty"`
-	Thinking      bool     `json:"thinking_supported,omitempty"`
-	AuthSupported bool     `json:"auth_supported,omitempty"`
-	Source        string   `json:"source,omitempty"`
-	Selectable    bool     `json:"selectable"`
-	Stale         bool     `json:"stale,omitempty"`
+	ID              string   `json:"id"`
+	Provider        string   `json:"provider"`
+	Name            string   `json:"name"`
+	ContextLength   int      `json:"context_length,omitempty"`
+	MaxTokens       int      `json:"max_tokens,omitempty"`
+	Modalities      []string `json:"modalities,omitempty"`
+	CostInput       float64  `json:"cost_input,omitempty"`
+	CostOutput      float64  `json:"cost_output,omitempty"`
+	CostCacheRead   float64  `json:"cost_cache_read,omitempty"`
+	CostCacheWrite  float64  `json:"cost_cache_write,omitempty"`
+	Reasoning       bool     `json:"reasoning,omitempty"`
+	Thinking        bool     `json:"thinking_supported,omitempty"`
+	AuthSupported   bool     `json:"auth_supported,omitempty"`
+	Source          string   `json:"source,omitempty"`
+	Selectable      bool     `json:"selectable"`
+	Stale           bool     `json:"stale,omitempty"`
+	// CostInputLocal / CostOutputLocal / Currency are populated
+	// when the catalog request carries a non-USD locale and the
+	// currency rate cache has a fresh rate. They are pointers so
+	// omitempty drops them for en-US users (whose response shape
+	// must remain identical to PR-02).
+	CostInputLocal  *float64 `json:"cost_input_local,omitempty"`
+	CostOutputLocal *float64 `json:"cost_output_local,omitempty"`
+	Currency        string   `json:"currency,omitempty"`
 }
 
 // ModelsDevCatalog owns the in-memory cache of models.dev entries

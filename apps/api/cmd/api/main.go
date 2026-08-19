@@ -162,6 +162,7 @@ func main() {
 	modelsCatalogHandler := api.NewModelsCatalogHandler(
 		catalog.NewModelsDevCatalog(),
 		loginProvidersCache,
+		catalog.NewRatesCache(),
 	)
 	mux.Handle("/", middleware.TLSHandler(
 		middleware.CORSHandler(middleware.CORSConfig{})(
