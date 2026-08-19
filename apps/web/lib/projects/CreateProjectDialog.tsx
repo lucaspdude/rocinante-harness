@@ -262,10 +262,11 @@ export function CreateProjectDialog({
                 id="folder-path"
                 type="text"
                 value={folderPath}
-                onChange={(e) => setFolderPath(e.target.value)}
-                placeholder="~/projects/my-app"
+                readOnly
+                placeholder={t("projects.folderPicker.pickButton")}
                 className="rh-input font-mono text-sm flex-1"
                 disabled={busy}
+                aria-readonly="true"
               />
               <button
                 type="button"

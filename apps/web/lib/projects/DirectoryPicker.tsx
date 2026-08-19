@@ -14,6 +14,17 @@
 //     and Cancel button cover the close paths).
 //
 // Endpoint: GET /api/v1/cwd/browse?path=...
+//
+// PR-03 changes:
+//   - D1: bootstrap navigateTo uses "/" when useMe returns the
+//     fallback (no token); the picker no longer waits forever
+//     for the user-home effect to run.
+//   - D2: load errors surface as toasts; no inline <p role="alert">.
+//   - D3: pathInput + handlePathSubmit are always enabled — the
+//     user can still type /root/projects/foo and submit even when
+//     browse fails.
+//   - D5: when the last browse failed with 401, a small CTA row
+//     appears with "Sign in" / "Retry" so the user has a way out.
 
 import {
   useCallback,
@@ -22,9 +33,9 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { api } from "../api/client";
+import { api, ApiClientError } from "../api/client";
 import { useMe } from "../me/useMe";
-import { useT } from "../i18n";
+import { useT, useLocalizedPath } from "../i18n";
 import { useToast } from "../toast";
 import type { Project } from "./useProjects";
 
@@ -79,8 +90,9 @@ function DirectoryPickerInner({
 }: Props) {
   const t = useT();
   const toast = useToast();
+  const lp = useLocalizedPath();
   const { me } = useMe();
-  const home = me?.home ?? "/root";
+  const home = me?.home ?? "/";
   const registered = new Set(registeredPaths ?? []);
 
   const [currentPath, setCurrentPath] = useState<string>(home);
@@ -88,6 +100,9 @@ function DirectoryPickerInner({
   const [pathInput, setPathInput] = useState<string>(home);
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // PR-03 D5 — track whether the last failed browse was a 401
+  // so we can show the "Sign in / Retry" CTA row.
+  const [authFailed, setAuthFailed] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const lastLoadErrorRef = useRef<string | null>(null);
   const lastPropErrorRef = useRef<string | null>(null);
@@ -107,6 +122,7 @@ function DirectoryPickerInner({
     async (directory?: string) => {
       setLoading(true);
       setLoadError(null);
+      setAuthFailed(false);
       try {
         const target = stripTrailingSlash(directory ?? home);
         // Expand "~" client-side so the api call sends an absolute
@@ -127,25 +143,47 @@ function DirectoryPickerInner({
         setEntries(res.entries ?? []);
       } catch (e: unknown) {
         const err = e as {
+          status?: number;
           body?: { message?: string; code?: string };
           message?: string;
         };
-        setLoadError(err.body?.message ?? err.message ?? "failed");
+        const isApiError = e instanceof ApiClientError;
+        const status = isApiError ? (e as ApiClientError).status : err.status;
+        const msg =
+          err.body?.message ?? err.message ?? t("projects.folderPicker.empty");
+        setLoadError(msg);
+        if (status === 401) {
+          // PR-03 D5: surface the CTA row.
+          setAuthFailed(true);
+          toast.error(
+            t("projects.folderPicker.signedOut"),
+            t("projects.folderPicker.signedOutHint"),
+          );
+          // PR-03 D1: if the user tried "/" itself, surface a
+          // specific message instead of the generic 401.
+          if ((directory ?? home) === "/") {
+            toast.error(t("projects.folderPicker.cannotListRoot"));
+          }
+        } else {
+          toast.error(msg);
+        }
       } finally {
         setLoading(false);
       }
     },
-    [home],
+    [home, t, toast],
   );
 
-  // Initial mount: navigate to the user's home dir once we have it.
+  // Initial mount: navigate to the user's home dir (or "/" when
+  // the fallback is in effect). PR-03 D1: never guard on `me` —
+  // wait for it would freeze the picker when no token is present.
   useEffect(() => {
-    if (me) void navigateTo(me.home);
+    void navigateTo(me?.home ?? "/");
     // We intentionally don't add navigateTo here — it's a stable
     // callback over home, and re-running on each navigateTo
     // identity change would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me]);
+  }, []);
 
   const handlePathSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -156,6 +194,10 @@ function DirectoryPickerInner({
   const handleEntryClick = (entry: DirectoryEntry) => {
     if (!entry.is_dir) return;
     void navigateTo(joinPath(currentPath, entry.name));
+  };
+
+  const handleRetry = () => {
+    void navigateTo(currentPath);
   };
 
   const hasUncommittedPath = pathInput.trim() !== currentPath;
@@ -186,6 +228,32 @@ function DirectoryPickerInner({
             ×
           </button>
         </header>
+
+        {authFailed && (
+          <div
+            role="status"
+            className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-xs"
+          >
+            <span className="text-[var(--color-fg-muted)]">
+              {t("projects.folderPicker.cta.helpText")}
+            </span>
+            <span className="flex items-center gap-3">
+              <a
+                href={lp("/login")}
+                className="font-medium underline text-[var(--color-primary)] hover:opacity-80"
+              >
+                {t("projects.folderPicker.cta.signIn")}
+              </a>
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="rh-button-ghost h-7 px-2 text-xs"
+              >
+                {t("projects.folderPicker.cta.retry")}
+              </button>
+            </span>
+          </div>
+        )}
 
         <form
           onSubmit={handlePathSubmit}
@@ -255,7 +323,7 @@ function DirectoryPickerInner({
                       className="w-full text-left px-2 py-1.5 rounded font-mono text-xs hover:bg-[var(--color-bg-elevated)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
                       <span aria-hidden="true">
-                        {entry.is_dir ? "�" : "📄"}
+                        {entry.is_dir ? "📁" : "📄"}
                       </span>
                       <span className="truncate flex-1">{entry.name}</span>
                       {inRegistry && (

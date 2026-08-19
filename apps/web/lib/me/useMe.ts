@@ -5,6 +5,10 @@
 // "~" in path inputs and to render the initial breadcrumb. We
 // cache at module scope so re-mounts in the same session skip
 // the network round-trip; the cache is cleared on full reload.
+//
+// PR-03: when the api is unreachable (no token, 401, network),
+// resolve to a sane default so the picker can still render and
+// fall back to "/" / "/root" instead of staying null forever.
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -15,10 +19,27 @@ export interface MeResponse {
   host: string;
 }
 
-let cached: MeResponse | null = null;
-let inflight: Promise<MeResponse | null> | null = null;
+// Default used when the api is unreachable. The api also falls
+// back to /root server-side when $HOME is unset, so the two
+// sides agree.
+const FALLBACK_HOME = "/root";
+const FALLBACK_USER = "anonymous";
 
-async function fetchMe(): Promise<MeResponse | null> {
+function fallbackMe(): MeResponse {
+  return {
+    home: FALLBACK_HOME,
+    user: FALLBACK_USER,
+    host:
+      typeof window !== "undefined" && window.location
+        ? window.location.host
+        : "",
+  };
+}
+
+let cached: MeResponse | null = null;
+let inflight: Promise<MeResponse> | null = null;
+
+async function fetchMe(): Promise<MeResponse> {
   if (cached) return cached;
   if (inflight) return inflight;
   inflight = api
@@ -28,9 +49,13 @@ async function fetchMe(): Promise<MeResponse | null> {
       return res;
     })
     .catch(() => {
-      // The api throws ApiClientError on 401/non-200. We swallow
-      // it here so the picker still renders (just without ~).
-      return null;
+      // The api throws ApiClientError on 401/non-200/network.
+      // Return the fallback so the picker still resolves with a
+      // usable home directory instead of staying null forever.
+      // The picker shows "/" by default (D1) until the user
+      // signs in; once useMe re-runs with a real token, the
+      // real home replaces the fallback.
+      return fallbackMe();
     })
     .finally(() => {
       inflight = null;
@@ -38,8 +63,8 @@ async function fetchMe(): Promise<MeResponse | null> {
   return inflight;
 }
 
-export function useMe(): { me: MeResponse | null } {
-  const [me, setMe] = useState<MeResponse | null>(cached);
+export function useMe(): { me: MeResponse } {
+  const [me, setMe] = useState<MeResponse>(cached ?? fallbackMe());
   useEffect(() => {
     if (cached) return;
     let cancelled = false;
