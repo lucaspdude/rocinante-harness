@@ -1,15 +1,18 @@
 "use client";
 
 // CreateProjectDialog — modal with 3 tabs (Folder / Clone / Empty)
-// backed by the registry endpoints. PR-05 spec.
+// backed by the registry endpoints. PR-05 spec; PR-02 wires the
+// DirectoryPicker into the "Folder" and "Empty" tabs.
 
 import { useEffect, useState } from "react";
 import { useT } from "../i18n";
+import { useMe } from "../me/useMe";
 import {
   useProjects,
   type CloneStartResponse,
   type CreateProjectInput,
 } from "./useProjects";
+import { DirectoryPicker } from "./DirectoryPicker";
 
 type TabId = "folder" | "clone" | "empty";
 
@@ -20,8 +23,15 @@ export interface CreateProjectDialogProps {
   initialTab?: TabId;
 }
 
-function isAbsolute(p: string): boolean {
-  return p.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(p);
+function expandHome(p: string, home: string): string {
+  if (p === "~") return home;
+  if (p.startsWith("~/")) return home + p.slice(1);
+  return p;
+}
+
+function isAbsolute(p: string, home: string): boolean {
+  const expanded = expandHome(p, home);
+  return expanded.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(expanded);
 }
 
 function noTraversal(p: string): boolean {
@@ -41,9 +51,12 @@ export function CreateProjectDialog({
   initialTab,
 }: CreateProjectDialogProps) {
   const t = useT();
-  const { register, startClone } = useProjects(open ? 5000 : 0);
+  const { me } = useMe();
+  const home = me?.home ?? "/root";
+  const { register, startClone, projects } = useProjects(open ? 5000 : 0);
   const [tab, setTab] = useState<TabId>(initialTab ?? "folder");
   const [folderPath, setFolderPath] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [emptyPath, setEmptyPath] = useState("");
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneParent, setCloneParent] = useState("");
@@ -167,22 +180,24 @@ export function CreateProjectDialog({
   }
 
   function submitFolder() {
-    if (!isAbsolute(folderPath) || !noTraversal(folderPath)) {
+    if (!isAbsolute(folderPath, home) || !noTraversal(folderPath)) {
       setError(t("projects.errors.invalidPath"));
       return;
     }
-    void doRegister({ path: folderPath, name: basename(folderPath) });
+    const expanded = expandHome(folderPath, home);
+    void doRegister({ path: expanded, name: basename(expanded) });
   }
   function submitEmpty() {
-    if (!isAbsolute(emptyPath) || !noTraversal(emptyPath)) {
+    if (!isAbsolute(emptyPath, home) || !noTraversal(emptyPath)) {
       setError(t("projects.errors.invalidPath"));
       return;
     }
-    if (!folderNameRegex.test(basename(emptyPath))) {
+    const expanded = expandHome(emptyPath, home);
+    if (!folderNameRegex.test(basename(expanded))) {
       setError(t("projects.errors.invalidFolderName"));
       return;
     }
-    void doRegister({ path: emptyPath, name: basename(emptyPath) });
+    void doRegister({ path: expanded, name: basename(expanded) });
   }
   function submitClone() {
     if (cloneFolder && !folderNameRegex.test(cloneFolder)) {
@@ -248,15 +263,26 @@ export function CreateProjectDialog({
             <label className="rh-label" htmlFor="folder-path">
               {t("projects.field.folderPath")}
             </label>
-            <input
-              id="folder-path"
-              type="text"
-              value={folderPath}
-              onChange={(e) => setFolderPath(e.target.value)}
-              placeholder="~/projects/my-app"
-              className="rh-input font-mono text-sm"
-              disabled={busy}
-            />
+            <div className="flex gap-2">
+              <input
+                id="folder-path"
+                type="text"
+                value={folderPath}
+                onChange={(e) => setFolderPath(e.target.value)}
+                placeholder="~/projects/my-app"
+                className="rh-input font-mono text-sm flex-1"
+                disabled={busy}
+              />
+              <button
+                type="button"
+                onClick={() => setPickerOpen(true)}
+                disabled={busy}
+                className="rh-button-ghost text-sm"
+                aria-haspopup="dialog"
+              >
+                {t("projects.folderPicker.pickButton")}
+              </button>
+            </div>
             <button
               type="button"
               onClick={submitFolder}
@@ -285,15 +311,26 @@ export function CreateProjectDialog({
             <label className="rh-label" htmlFor="clone-parent">
               {t("projects.field.parentPath")}
             </label>
-            <input
-              id="clone-parent"
-              type="text"
-              value={cloneParent}
-              onChange={(e) => setCloneParent(e.target.value)}
-              placeholder="~/projects"
-              className="rh-input font-mono text-sm"
-              disabled={busy}
-            />
+            <div className="flex gap-2">
+              <input
+                id="clone-parent"
+                type="text"
+                value={cloneParent}
+                onChange={(e) => setCloneParent(e.target.value)}
+                placeholder="~/projects"
+                className="rh-input font-mono text-sm flex-1"
+                disabled={busy}
+              />
+              <button
+                type="button"
+                onClick={() => setPickerOpen(true)}
+                disabled={busy}
+                className="rh-button-ghost text-sm"
+                aria-haspopup="dialog"
+              >
+                {t("projects.folderPicker.pickButton")}
+              </button>
+            </div>
             <label className="rh-label" htmlFor="clone-folder">
               {t("projects.field.folderName")}
             </label>
@@ -343,15 +380,26 @@ export function CreateProjectDialog({
             <label className="rh-label" htmlFor="empty-path">
               {t("projects.field.emptyPath")}
             </label>
-            <input
-              id="empty-path"
-              type="text"
-              value={emptyPath}
-              onChange={(e) => setEmptyPath(e.target.value)}
-              placeholder="~/projects/new-app"
-              className="rh-input font-mono text-sm"
-              disabled={busy}
-            />
+            <div className="flex gap-2">
+              <input
+                id="empty-path"
+                type="text"
+                value={emptyPath}
+                onChange={(e) => setEmptyPath(e.target.value)}
+                placeholder="~/projects/new-app"
+                className="rh-input font-mono text-sm flex-1"
+                disabled={busy}
+              />
+              <button
+                type="button"
+                onClick={() => setPickerOpen(true)}
+                disabled={busy}
+                className="rh-button-ghost text-sm"
+                aria-haspopup="dialog"
+              >
+                {t("projects.folderPicker.pickButton")}
+              </button>
+            </div>
             <button
               type="button"
               onClick={submitEmpty}
@@ -363,6 +411,22 @@ export function CreateProjectDialog({
           </div>
         )}
 
+        <DirectoryPicker
+          open={pickerOpen}
+          onCancel={() => setPickerOpen(false)}
+          onSelect={(path) => {
+            // Set the path on whichever input corresponds to
+            // the active tab so the user can immediately click
+            // Register/Create. The picker already returns an
+            // absolute path; we don't try to keep the "~" form.
+            if (tab === "folder") setFolderPath(path);
+            else if (tab === "empty") setEmptyPath(path);
+            else if (tab === "clone") setCloneParent(path);
+            setPickerOpen(false);
+          }}
+          registeredPaths={projects.map((p) => p.path)}
+          busy={busy}
+        />
         <footer className="mt-auto pt-3 flex justify-end">
           <button
             type="button"

@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -24,11 +25,15 @@ import (
 // FilesHandler is mounted at /api/v1/files/*.
 type FilesHandler struct {
 	Access *FileAccess
+	// Home is the value ExpandHome resolves "~" against. Captured
+	// at construction so /api/v1/cwd/browse?path=~ resolves
+	// consistently regardless of who calls the api.
+	Home string
 }
 
 // NewFilesHandler creates a FilesHandler bound to the access list.
-func NewFilesHandler(access *FileAccess) *FilesHandler {
-	return &FilesHandler{Access: access}
+func NewFilesHandler(access *FileAccess, home string) *FilesHandler {
+	return &FilesHandler{Access: access, Home: home}
 }
 
 // Entry is one row of a directory listing.
@@ -213,6 +218,17 @@ type BrowseResponse struct {
 	Entries []Entry `json:"entries"`
 }
 
+// blockedTopLevel lists the top-level Linux pseudo-filesystems
+// that the DirectoryPicker refuses to walk. On Linux these
+// contain infinite or special entries that hang the listing;
+// on macOS / Windows we leave them unfiltered so the local user
+// can navigate their own filesystem normally.
+var blockedTopLevel = map[string]bool{
+	"/proc": true,
+	"/sys":  true,
+	"/dev":  true,
+}
+
 // BrowseHandler is GET /api/v1/cwd/browse?path=... — exposes
 // the host filesystem via the same allow-list.
 func (h *FilesHandler) BrowseHandler(w http.ResponseWriter, r *http.Request) {
@@ -222,8 +238,13 @@ func (h *FilesHandler) BrowseHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	path := q.Get("path")
+	path = ExpandHome(path, h.Home)
 	if path == "" {
 		writeErr(w, http.StatusBadRequest, "bad_request", "path required")
+		return
+	}
+	if runtime.GOOS == "linux" && blockedTopLevel[path] {
+		writeErr(w, http.StatusForbidden, "blocked_path", "path not allowed")
 		return
 	}
 	if !h.Access.IsAllowed(path) {

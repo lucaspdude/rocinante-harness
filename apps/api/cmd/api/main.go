@@ -134,7 +134,15 @@ func main() {
 	for _, p := range projectReg.List() {
 		fileAccess.QuietAllow(p.Path)
 	}
-
+	// PR-02: seed the picker allow-list with $HOME so the picker
+	// can navigate the user's home dir before any project has
+	// been registered. On systemd-less runs (rare) $HOME can be
+	// empty; fall back to /root which is the harness default.
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "/root"
+	}
+	fileAccess.QuietAllow(home)
 	mux.Handle("/", middleware.TLSHandler(
 		middleware.CORSHandler(middleware.CORSConfig{})(
 			api.NewRouter(api.RouterDeps{
@@ -162,13 +170,14 @@ func main() {
 				Projects: &api.ProjectsHandlers{
 					Registry:   projectReg,
 					Sessions:   manager,
+					Home:       home,
 				},
 				Clone: &api.CloneHandlers{
 					Jobs:       projects.NewCloneJobs(),
 					Registry:   projectReg,
 					FileAccess: fileAccess,
 				},
-				Files: files.NewFilesHandler(fileAccess),
+				Files: files.NewFilesHandler(fileAccess, home),
 				Git:   files.NewGitHandler(fileAccess),
 			}),
 		),
