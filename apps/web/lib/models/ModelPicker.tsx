@@ -165,6 +165,14 @@ export function ModelPicker({ value, onChange }: ModelPickerProps) {
                     ) : null}
                     {m.reasoning ? (
                       <span
+                        title="Supports reasoning"
+                        className="px-1 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                      >
+                        reasoning
+                      </span>
+                    ) : null}
+                    {m.thinking_supported ? (
+                      <span
                         title="Supports thinking"
                         className="px-1 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400"
                       >
