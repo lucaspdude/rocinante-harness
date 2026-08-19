@@ -265,5 +265,15 @@
   "agent.newSession.project.empty": "No projects yet",
   "agent.newSession.project.create": "+ Create your first project",
   "agent.newSession.project.item": "{name} · {lastActivity}",
-  "agent.newSession.project.createNew": "+ New project"
+  "agent.newSession.project.createNew": "+ New project",
+  "projects.folderPicker.title": "Pick a folder",
+  "projects.folderPicker.up": "Up",
+  "projects.folderPicker.upHint": "Go to parent directory",
+  "projects.folderPicker.open": "Open",
+  "projects.folderPicker.select": "Select",
+  "projects.folderPicker.cancel": "Cancel",
+  "projects.folderPicker.empty": "No readable subdirectories.",
+  "projects.folderPicker.inRegistry": "In registry",
+  "projects.folderPicker.pickButton": "Pick a folder…",
+  "projects.errors.expansionFailed": "Could not expand ~. Check that $HOME is set on the harness."
 }

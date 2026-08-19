@@ -18,6 +18,8 @@ type ProjectsHandlers struct {
 	Registry   *projects.Registry
 	Sessions   *omp.Manager
 	FileAccess *files.FileAccess
+	// Home is the value ExpandHome resolves "~" against on POST.
+	Home string
 }
 
 type registerProjectRequest struct {
@@ -137,6 +139,7 @@ func (h *ProjectsHandlers) register(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	req.Path = files.ExpandHome(req.Path, h.Home)
 	got, err := h.Registry.Upsert(req.Path, req.Name, req.Description, false)
 	if err != nil {
 		if err == projects.ErrAlreadyRegistered {

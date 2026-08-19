@@ -113,11 +113,11 @@ func NewRouter(deps RouterDeps) http.Handler {
 			if deps.Files != nil {
 				r.Get("/api/v1/files", deps.Files.ListHandler)
 				r.Get("/api/v1/files/content", deps.Files.ContentHandler)
+				// PR-02: folder picker mount.
+				r.Get("/api/v1/cwd/browse", deps.Files.BrowseHandler)
 			}
-			if deps.Git != nil {
-				r.Get("/api/v1/git/repos", deps.Git.ReposHandler)
-				r.Get("/api/v1/git/status", deps.Git.StatusHandler)
-			}
+			// PR-02: /api/v1/me — exposes home/user/host to the picker.
+			r.Get("/api/v1/me", MeHandler)
 		})
 	}
 

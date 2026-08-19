@@ -265,5 +265,15 @@
   "agent.newSession.project.empty": "No projects yet",
   "agent.newSession.project.create": "+ Create your first project",
   "agent.newSession.project.item": "{name} · {lastActivity}",
-  "agent.newSession.project.createNew": "+ New project"
+  "agent.newSession.project.createNew": "+ New project",
+  "projects.folderPicker.title": "Escolher pasta",
+  "projects.folderPicker.up": "Acima",
+  "projects.folderPicker.upHint": "Ir para o diretório pai",
+  "projects.folderPicker.open": "Abrir",
+  "projects.folderPicker.select": "Selecionar",
+  "projects.folderPicker.cancel": "Cancelar",
+  "projects.folderPicker.empty": "Nenhum subdiretório legível.",
+  "projects.folderPicker.inRegistry": "No registro",
+  "projects.folderPicker.pickButton": "Escolher pasta…",
+  "projects.errors.expansionFailed": "Não foi possível expandir ~. Verifique se $HOME está definido no harness."
 }
