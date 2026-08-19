@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -214,9 +212,10 @@ func (h *Handler) deleteServer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// testServer tries to dial the host:port and returns the result.
-// Actual SSH handshake is out of scope for the MVP — the goal is
-// to surface DNS / port / reachability errors to the user.
+// testServer runs TestConnection against the server and returns
+// the classified outcome plus the raw stderr message. The web
+// renders different UI per outcome (red ✗ for auth_failed, yellow
+// for conn_refused, etc.) so the JSON shape mirrors that contract.
 func (h *Handler) testServer(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	srv, err := h.Servers.Get(id)
@@ -224,15 +223,24 @@ func (h *Handler) testServer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errorJSON{Code: "server_not_found", Message: err.Error()})
 		return
 	}
-	addr := net.JoinHostPort(srv.Host, strconv.Itoa(srv.Port))
-	d := net.Dialer{Timeout: 5 * time.Second}
-	conn, err := d.DialContext(r.Context(), "tcp", addr)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, errorJSON{Code: "connect_failed", Message: err.Error()})
-		return
+	// Resolve the identity file (only present when the server
+	// references a key). An empty identity file path is fine —
+	// TestConnection will pass no -i flag and let ssh use the
+	// user default (~/.ssh/id_* or the agent).
+	var identity string
+	if srv.KeyID != "" {
+		sshDir, err := sshDirFor(h.Home)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errorJSON{Code: "internal", Message: err.Error()})
+			return
+		}
+		identity, _ = IdentityForKey(h.Keys, sshDir, srv.KeyID)
 	}
-	_ = conn.Close()
-	writeJSON(w, http.StatusOK, map[string]any{"status": "tcp_reachable"})
+	res := TestConnection(r.Context(), srv, identity)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  string(res.Outcome),
+		"message": res.Message,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
