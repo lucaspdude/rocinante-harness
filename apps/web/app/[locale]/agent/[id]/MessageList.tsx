@@ -1,7 +1,7 @@
 "use client";
-
 import { useT } from "../../../../lib/i18n";
 import type { ChatMessage } from "../../../../lib/agent/useChatSession";
+import { SafeMarkdown } from "../../../../lib/agent/SafeMarkdown";
 
 export function MessageList({ messages }: { messages: ChatMessage[] }) {
   const t = useT();
@@ -37,9 +37,7 @@ export function MessageList({ messages }: { messages: ChatMessage[] }) {
               <div className="text-xs uppercase tracking-wide opacity-70 mb-1">
                 {m.role}
               </div>
-              <pre className="m-0 whitespace-pre-wrap font-sans text-sm">
-                {m.content}
-              </pre>
+              <SafeMarkdown text={m.content} />
             </div>
           </li>
         );

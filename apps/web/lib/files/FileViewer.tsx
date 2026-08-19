@@ -9,6 +9,7 @@ import { useT } from "../i18n";
 import { useToast, extractError } from "../toast";
 import { useFileContent } from "./useFiles";
 import { FileEditor } from "./FileEditor";
+import { MarkdownBody } from "./MarkdownBody";
 
 interface FileViewerProps {
   root: string;
@@ -100,57 +101,6 @@ export function FileViewer({ root, path, onClose }: FileViewerProps) {
       )}
     </div>
   );
-}
-
-// MarkdownBody — minimal renderer using HTML escaping only.
-function MarkdownBody({ text }: { text: string }) {
-  const parts: { kind: "p" | "code"; body: string; lang: string }[] = [];
-  const fence = /```(\w+)?\n([\s\S]*?)```/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = fence.exec(text)) !== null) {
-    if (m.index > last) {
-      const between = text.slice(last, m.index);
-      if (between.trim()) parts.push({ kind: "p", body: between, lang: "" });
-    }
-    const body = m[2] ?? "";
-    const lang = m[1] ?? "";
-    parts.push({ kind: "code", body, lang });
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) {
-    const tail = text.slice(last);
-    if (tail.trim()) parts.push({ kind: "p", body: tail, lang: "" });
-  }
-  if (parts.length === 0) parts.push({ kind: "p", body: text, lang: "" });
-  return (
-    <div className="flex-1 overflow-auto p-2 text-sm">
-      {parts.map((p, i) =>
-        p.kind === "code" ? (
-          <pre
-            key={i}
-            className="bg-[var(--color-bg-card)] rounded p-2 font-mono text-xs whitespace-pre overflow-x-auto"
-          >
-            {p.body}
-          </pre>
-        ) : (
-          <p
-            key={i}
-            className="my-2 whitespace-pre-wrap"
-            dangerouslySetInnerHTML={{ __html: renderSafeParagraph(p.body) }}
-          />
-        )
-      )}
-    </div>
-  );
-}
-
-function renderSafeParagraph(input: string): string {
-  const escaped = input
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  return escaped.replace(/\n/g, "<br/>");
 }
 
 function isMarkdown(path: string): boolean {
