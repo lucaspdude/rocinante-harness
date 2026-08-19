@@ -138,7 +138,7 @@ export function ToastViewport() {
       aria-live="polite"
       aria-atomic="false"
       data-testid="toast-viewport"
-      className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm"
+      className="fixed bottom-4 right-4 mr-32 z-50 flex flex-col gap-2 max-w-sm"
     >
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} />
