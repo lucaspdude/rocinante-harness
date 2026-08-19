@@ -18,13 +18,16 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
 import { api } from "../api/client";
 import { useMe } from "../me/useMe";
 import { useT } from "../i18n";
+import { useToast } from "../toast";
 import type { Project } from "./useProjects";
+
 
 interface DirectoryEntry {
   name: string;
@@ -75,6 +78,7 @@ function DirectoryPickerInner({
   error,
 }: Props) {
   const t = useT();
+  const toast = useToast();
   const { me } = useMe();
   const home = me?.home ?? "/root";
   const registered = new Set(registeredPaths ?? []);
@@ -85,7 +89,20 @@ function DirectoryPickerInner({
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-
+  const lastLoadErrorRef = useRef<string | null>(null);
+  const lastPropErrorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loadError && loadError !== lastLoadErrorRef.current) {
+      lastLoadErrorRef.current = loadError;
+      toast.error(loadError);
+    }
+  }, [loadError, toast]);
+  useEffect(() => {
+    if (error && error !== lastPropErrorRef.current) {
+      lastPropErrorRef.current = error;
+      toast.error(error);
+    }
+  }, [error, toast]);
   const navigateTo = useCallback(
     async (directory?: string) => {
       setLoading(true);
@@ -259,18 +276,8 @@ function DirectoryPickerInner({
               {t("projects.folderPicker.empty")}
             </p>
           )}
-          {loadError && (
-            <p role="alert" className="p-3 rh-error text-sm">
-              {loadError}
-            </p>
-          )}
-        </div>
 
-        {error && (
-          <p role="alert" className="rh-error text-sm mt-3">
-            {error}
-          </p>
-        )}
+        </div>
 
         <footer className="mt-3 pt-3 flex justify-end gap-2">
           <button

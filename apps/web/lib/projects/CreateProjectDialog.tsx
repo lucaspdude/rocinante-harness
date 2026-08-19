@@ -13,6 +13,8 @@ import {
   type CreateProjectInput,
 } from "./useProjects";
 import { DirectoryPicker } from "./DirectoryPicker";
+import { useToast } from "../toast";
+
 
 type TabId = "folder" | "clone" | "empty";
 
@@ -51,6 +53,7 @@ export function CreateProjectDialog({
   initialTab,
 }: CreateProjectDialogProps) {
   const t = useT();
+  const toast = useToast();
   const { me } = useMe();
   const home = me?.home ?? "/root";
   const { register, startClone, projects } = useProjects(5000, open);
@@ -61,7 +64,6 @@ export function CreateProjectDialog({
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneParent, setCloneParent] = useState("");
   const [cloneFolder, setCloneFolder] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [cloneJob, setCloneJob] = useState<CloneStartResponse | null>(null);
   const [progress, setProgress] = useState<number>(0);
@@ -70,7 +72,7 @@ export function CreateProjectDialog({
   useEffect(() => {
     if (open && initialTab) setTab(initialTab);
     if (!open) {
-      setError(null);
+
       setBusy(false);
       setCloneJob(null);
       setProgress(0);
@@ -125,9 +127,9 @@ export function CreateProjectDialog({
       const m = ev as MessageEvent;
       try {
         const d = JSON.parse(m.data);
-        setError(d.error ?? t("projects.clone.failed"));
+        toast.error(d.error ?? t("projects.clone.failed"));
       } catch {
-        setError(t("projects.clone.failed"));
+        toast.error(t("projects.clone.failed"));
       }
       es.close();
     });
@@ -141,14 +143,13 @@ export function CreateProjectDialog({
 
   async function doRegister(input: CreateProjectInput) {
     setBusy(true);
-    setError(null);
     try {
       const p = await register(input);
       onCreated?.(p.path);
       onClose();
     } catch (e: unknown) {
       const err = e as { body?: { message?: string; code?: string }; message?: string };
-      setError(err.body?.message ?? err.message ?? "failed");
+      toast.error(err.body?.message ?? err.message ?? "failed");
     } finally {
       setBusy(false);
     }
@@ -156,11 +157,10 @@ export function CreateProjectDialog({
 
   async function doClone() {
     if (!cloneUrl || !cloneParent) {
-      setError(t("projects.clone.missingFields"));
+      toast.error(t("projects.clone.missingFields"));
       return;
     }
     setBusy(true);
-    setError(null);
     try {
       const input: { url: string; parent_path: string; folder_name?: string } = {
         url: cloneUrl,
@@ -173,7 +173,7 @@ export function CreateProjectDialog({
       setProgress(0);
     } catch (e: unknown) {
       const err = e as { body?: { message?: string; code?: string }; message?: string };
-      setError(err.body?.message ?? err.message ?? "failed");
+      toast.error(err.body?.message ?? err.message ?? "failed");
     } finally {
       setBusy(false);
     }
@@ -181,7 +181,7 @@ export function CreateProjectDialog({
 
   function submitFolder() {
     if (!isAbsolute(folderPath, home) || !noTraversal(folderPath)) {
-      setError(t("projects.errors.invalidPath"));
+      toast.error(t("projects.errors.invalidPath"));
       return;
     }
     const expanded = expandHome(folderPath, home);
@@ -189,19 +189,19 @@ export function CreateProjectDialog({
   }
   function submitEmpty() {
     if (!isAbsolute(emptyPath, home) || !noTraversal(emptyPath)) {
-      setError(t("projects.errors.invalidPath"));
+      toast.error(t("projects.errors.invalidPath"));
       return;
     }
     const expanded = expandHome(emptyPath, home);
     if (!folderNameRegex.test(basename(expanded))) {
-      setError(t("projects.errors.invalidFolderName"));
+      toast.error(t("projects.errors.invalidFolderName"));
       return;
     }
     void doRegister({ path: expanded, name: basename(expanded) });
   }
   function submitClone() {
     if (cloneFolder && !folderNameRegex.test(cloneFolder)) {
-      setError(t("projects.errors.invalidFolderName"));
+      toast.error(t("projects.errors.invalidFolderName"));
       return;
     }
     void doClone();
@@ -251,12 +251,6 @@ export function CreateProjectDialog({
           {tabBtn("clone", t("projects.tab.clone"))}
           {tabBtn("empty", t("projects.tab.empty"))}
         </div>
-
-        {error && (
-          <p role="alert" className="rh-error mb-3">
-            {error}
-          </p>
-        )}
 
         {tab === "folder" && (
           <div className="flex flex-col gap-3">

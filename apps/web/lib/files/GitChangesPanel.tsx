@@ -3,7 +3,9 @@
 // GitChangesPanel — shows git status for a project root.
 // Polls /api/v1/git/status?cwd=... at 5s intervals.
 
+import { useEffect, useRef } from "react";
 import { useT } from "../i18n";
+import { useToast } from "../toast";
 import { useGitStatus } from "./useFiles";
 
 interface Props {
@@ -12,7 +14,16 @@ interface Props {
 
 export function GitChangesPanel({ cwd }: Props) {
   const t = useT();
+  const toast = useToast();
   const { files, clean, loading, error } = useGitStatus(cwd, 5000);
+  const lastErrorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (error && error !== lastErrorRef.current) {
+      lastErrorRef.current = error;
+      toast.error(error);
+    }
+  }, [error, toast]);
 
   if (!cwd) {
     return (
@@ -32,11 +43,7 @@ export function GitChangesPanel({ cwd }: Props) {
           {clean ? t("files.clean") : t("files.dirty", { count: files.length })}
         </span>
       </header>
-      {error ? (
-        <p role="alert" className="rh-error">
-          {error}
-        </p>
-      ) : loading && files.length === 0 ? (
+      {loading && files.length === 0 ? (
         <p className="text-xs text-[var(--color-fg-muted)]">{t("common.loading")}</p>
       ) : files.length === 0 ? (
         <p className="text-xs text-[var(--color-fg-muted)]">

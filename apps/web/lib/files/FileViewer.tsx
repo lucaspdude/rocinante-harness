@@ -3,8 +3,9 @@
 // FileViewer — shows raw file contents. Markdown via small render;
 // binary markers show "binary, N bytes, open in editor" copy.
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useT } from "../i18n";
+import { useToast } from "../toast";
 import { useFileContent } from "./useFiles";
 
 interface FileViewerProps {
@@ -15,7 +16,16 @@ interface FileViewerProps {
 
 export function FileViewer({ root, path, onClose }: FileViewerProps) {
   const t = useT();
+  const toast = useToast();
   const { text, binary, loading, error } = useFileContent(root, path);
+  const lastErrorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (error && error !== lastErrorRef.current) {
+      lastErrorRef.current = error;
+      toast.error(error);
+    }
+  }, [error, toast]);
 
   useEffect(() => {
     // Reset the markdown path memo when path changes.
@@ -38,10 +48,6 @@ export function FileViewer({ root, path, onClose }: FileViewerProps) {
       </header>
       {loading && !text && !binary ? (
         <p className="text-xs text-[var(--color-fg-muted)]">{t("common.loading")}</p>
-      ) : error ? (
-        <p role="alert" className="rh-error">
-          {error}
-        </p>
       ) : binary ? (
         <div className="rh-card">
           <p className="text-sm">{t("files.binary")}</p>
