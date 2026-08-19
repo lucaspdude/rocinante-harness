@@ -6,6 +6,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/files"
@@ -275,4 +278,190 @@ func (h *ProjectsHandlers) DeleteHandler(w http.ResponseWriter, r *http.Request)
 // chiURLParam is a small wrapper so tests don't have to import chi.
 func chiURLParam(r *http.Request, key string) string {
 	return chi.URLParam(r, key)
+}
+// Projects bulk operations — PR-07.
+//
+// POST /api/v1/projects/bulk
+//   {op:"archive"|"delete", paths:[string], confirmPath?:string}
+//
+// Archive: Hide(path, true) for each entry; collect per-path errors.
+// Delete:  require confirmPath matching one of the paths, then
+//          os.RemoveAll(path) + Hide(path, true). Destructive —
+//          confirmPath is the safety check against typos.
+//
+// Errors are collected per path and returned with 200; the request
+// as a whole only fails 4xx for shape problems (empty paths,
+// unknown op, traversal segments, missing/mismatched confirmPath
+// on delete). Non-2xx responses use the standard errorResponse.
+
+type bulkProjectsRequest struct {
+	Op          string   `json:"op"`
+	Paths       []string `json:"paths"`
+	ConfirmPath string   `json:"confirmPath,omitempty"`
+}
+
+type bulkProjectError struct {
+	Path    string `json:"path"`
+	Code    string `json:"code"`
+	Message string `json:"message,omitempty"`
+}
+
+type bulkProjectsResponse struct {
+	Archived int                `json:"archived,omitempty"`
+	Deleted  int                `json:"deleted,omitempty"`
+	Errors   []bulkProjectError `json:"errors,omitempty"`
+}
+
+// BulkHandler is the POST /api/v1/projects/bulk endpoint.
+func (h *ProjectsHandlers) BulkHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Code: "method_not_allowed"})
+		return
+	}
+	var req bulkProjectsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Code:    "bad_request",
+			Message: err.Error(),
+		})
+		return
+	}
+	if len(req.Paths) == 0 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Code:    "invalid_query",
+			Message: "paths must be non-empty",
+		})
+		return
+	}
+	switch req.Op {
+	case "archive":
+		// Fall through.
+	case "delete":
+		if req.ConfirmPath == "" {
+			writeJSON(w, http.StatusBadRequest, errorResponse{
+				Code:    "confirmation_required",
+				Message: "delete requires confirmPath in body",
+			})
+			return
+		}
+		expandedConfirm := files.ExpandHome(req.ConfirmPath, h.Home)
+		matched := false
+		for _, p := range req.Paths {
+			if files.ExpandHome(p, h.Home) == expandedConfirm {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			writeJSON(w, http.StatusBadRequest, errorResponse{
+				Code:    "confirmation_required",
+				Message: "confirmPath must match one of the project paths",
+			})
+			return
+		}
+	default:
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Code:    "invalid_query",
+			Message: "op must be 'archive' or 'delete'",
+		})
+		return
+	}
+
+	// Sanitize every path (no traversal, must be non-empty, must be
+	// allow-listed when FileAccess is wired). Build the working list
+	// of expanded absolute paths; bail at the first traversal hit
+	// (that's a 400, not a per-path error).
+	type pathJob struct {
+		original string
+		resolved string
+	}
+	jobs := make([]pathJob, 0, len(req.Paths))
+	for _, p := range req.Paths {
+		// Validate the RAW input — filepath.Clean collapses `..`
+		// segments, so checking the cleaned path misses traversal
+		// attempts like "/tmp/../escape" (which Clean turns into
+		// "/escape"). We want to reject the request before any
+		// expansion happens.
+		if p == "" || hasDotDotSegment(p) {
+			writeJSON(w, http.StatusBadRequest, errorResponse{
+				Code:    "invalid_query",
+				Message: "path contains '..' or is empty: " + p,
+			})
+			return
+		}
+		expanded := files.ExpandHome(p, h.Home)
+		if expanded == "" || hasDotDotSegment(expanded) {
+			writeJSON(w, http.StatusBadRequest, errorResponse{
+				Code:    "invalid_query",
+				Message: "path contains '..' or is empty: " + p,
+			})
+			return
+		}
+		if h.FileAccess != nil && !h.FileAccess.IsAllowed(expanded) {
+			writeJSON(w, http.StatusForbidden, errorResponse{
+				Code:    "path_outside_allowlist",
+				Message: expanded,
+			})
+			return
+		}
+		jobs = append(jobs, pathJob{original: p, resolved: expanded})
+	}
+
+	resp := bulkProjectsResponse{Errors: []bulkProjectError{}}
+	switch req.Op {
+	case "archive":
+		for _, j := range jobs {
+			if err := h.Registry.Hide(j.resolved, true); err != nil {
+				resp.Errors = append(resp.Errors, bulkProjectError{
+					Path:    j.original,
+					Code:    "archive_failed",
+					Message: err.Error(),
+				})
+				continue
+			}
+			resp.Archived++
+		}
+	case "delete":
+		for _, j := range jobs {
+			if err := os.RemoveAll(j.resolved); err != nil {
+				resp.Errors = append(resp.Errors, bulkProjectError{
+					Path:    j.original,
+					Code:    "delete_failed",
+					Message: err.Error(),
+				})
+				continue
+			}
+			if err := h.Registry.Hide(j.resolved, true); err != nil {
+				// os.RemoveAll already wiped the directory; the
+				// registry hide is a best-effort cleanup so a stale
+				// entry doesn't keep showing up. We still count the
+				// path as deleted.
+				resp.Errors = append(resp.Errors, bulkProjectError{
+					Path:    j.original,
+					Code:    "hide_failed",
+					Message: err.Error(),
+				})
+				continue
+			}
+			resp.Deleted++
+		}
+	}
+	if len(resp.Errors) == 0 {
+		resp.Errors = nil
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// hasDotDotSegment reports whether any path segment equals "..".
+// Used by BulkHandler to reject traversal attempts before the path
+// is expanded or cleaned (Clean collapses ".." so checking the
+// cleaned path would miss the attack).
+func hasDotDotSegment(p string) bool {
+	for _, seg := range strings.Split(p, string(filepath.Separator)) {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
 }
