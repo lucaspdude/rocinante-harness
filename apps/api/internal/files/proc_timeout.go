@@ -10,3 +10,9 @@ import (
 var newProcTimeout = func() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 5*time.Second)
 }
+
+// newSearchTimeout returns a context with a 5s deadline for ripgrep
+// shellouts. PR-06. Pluggable so tests can substitute.
+var newSearchTimeout = func() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 5*time.Second)
+}

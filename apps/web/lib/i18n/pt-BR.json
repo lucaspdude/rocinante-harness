@@ -376,5 +376,13 @@
   "files.editor.saved": "Salvo {path}",
   "files.editor.saveFailed": "Falha ao salvar: {message}",
   "files.editor.readOnly": "Somente leitura",
-  "files.editor.tooLarge": "Arquivo grande demais para editar no navegador. Abra em um terminal."
+  "files.editor.tooLarge": "Arquivo grande demais para editar no navegador. Abra em um terminal.",
+  "search.placeholder": "Buscar em {root}…",
+  "search.regexLabel": "Usar regex",
+  "search.globLabel": "Padrão de arquivo (ex.: *.ts)",
+  "search.empty": "Sem resultados.",
+  "search.partial": "Busca excedeu o tempo; mostrando resultados parciais.",
+  "search.matchCount": "{count} ocorrências",
+  "search.openResult": "Abrindo {path}:{line}",
+  "rightSidebar.rail.search": "Buscar"
 }
