@@ -5,6 +5,7 @@ import { useT, useI18n } from "../../../lib/i18n";
 import { api } from "../../../lib/api/client";
 import { tokenStore } from "../../../lib/auth/token-store";
 import { ProvidersPanel } from "../../../lib/providers/ProvidersPanel";
+import { GitSshPanel } from "../../../lib/ssh/GitSshPanel";
 import { TopNav } from "../../../lib/components/TopNav";
 import {
   SUPPORTED_LOCALES,
@@ -19,7 +20,7 @@ interface Device {
   last_seen_at: string;
 }
 
-type Tab = "general" | "providers" | "account" | "devices";
+type Tab = "general" | "providers" | "developer" | "account" | "devices";
 
 export default function SettingsPage() {
   const t = useT();
@@ -96,10 +97,17 @@ export default function SettingsPage() {
           </button>
           <button
             type="button"
-            className={`rh-tab ${tab === "devices" ? "rh-tab-active" : ""}`}
-            onClick={() => setTab("devices")}
+            className={`rh-tab ${tab === "developer" ? "rh-tab-active" : ""}`}
+            onClick={() => setTab("developer")}
           >
-            {t("settings.devices")}
+            {t("settings.developer")}
+          </button>
+          <button
+            type="button"
+            className={`rh-tab ${tab === "account" ? "rh-tab-active" : ""}`}
+            onClick={() => setTab("account")}
+          >
+            {t("settings.account")}
           </button>
         </div>
 
@@ -143,6 +151,8 @@ export default function SettingsPage() {
         )}
 
         {tab === "providers" && <ProvidersPanel />}
+
+        {tab === "developer" && <GitSshPanel />}
 
         {tab === "account" && (
           <section className="rh-card flex flex-col gap-4">
