@@ -36,7 +36,47 @@ func TestFlattenModelsDev(t *testing.T) {
 		t.Errorf("entries[0].ContextLength = %d", entries[0].ContextLength)
 	}
 	if entries[1].Name != "GPT 5" {
-		t.Errorf("entries[1].Name = %q, want GPT 5", entries[1].Name)
+		t.Errorf("entries[1].Name = %q, want GPT 5", entries[1].ID)
+	}
+}
+
+func TestFlattenModelsDevNestedShape(t *testing.T) {
+	// models.dev uses nested `cost: {input, output, ...}` and
+	// `limit: {context, output}` for newer payloads; the flatten
+	// code must read both paths.
+	body := []byte(`{
+		"openai": {
+			"models": {
+				"gpt-5": {
+					"name": "GPT 5",
+					"limit": {"context": 400000, "output": 128000},
+					"cost": {"input": 5.0, "output": 20.0, "cache_read": 1.25, "cache_write": 5.0}
+				}
+			}
+		}
+	}`)
+	entries, err := flattenModelsDev(body)
+	if err != nil {
+		t.Fatalf("flatten: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("len = %d, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.CostInput != 5.0 {
+		t.Errorf("CostInput = %v, want 5.0", e.CostInput)
+	}
+	if e.CostOutput != 20.0 {
+		t.Errorf("CostOutput = %v, want 20.0", e.CostOutput)
+	}
+	if e.CostCacheRead != 1.25 {
+		t.Errorf("CostCacheRead = %v, want 1.25", e.CostCacheRead)
+	}
+	if e.MaxTokens != 128000 {
+		t.Errorf("MaxTokens = %d, want 128000", e.MaxTokens)
+	}
+	if e.ContextLength != 400000 {
+		t.Errorf("ContextLength = %d, want 400000", e.ContextLength)
 	}
 }
 

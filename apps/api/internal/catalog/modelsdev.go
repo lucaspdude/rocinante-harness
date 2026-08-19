@@ -233,6 +233,24 @@ func flattenModelsDev(body []byte) ([]ModelsDevEntry, error) {
 			if v, ok := fmap["max_tokens"].(float64); ok {
 				entry.MaxTokens = int(v)
 			}
+			// models.dev nests cost under `cost: { input, output,
+			// cache_read, cache_write }` and limits under
+			// `limit: { context, output }`. Read both the flat and
+			// nested paths so older payloads (if any) still decode.
+			if cost, ok := fmap["cost"].(map[string]any); ok {
+				if v, ok := cost["input"].(float64); ok {
+					entry.CostInput = v
+				}
+				if v, ok := cost["output"].(float64); ok {
+					entry.CostOutput = v
+				}
+				if v, ok := cost["cache_read"].(float64); ok {
+					entry.CostCacheRead = v
+				}
+				if v, ok := cost["cache_write"].(float64); ok {
+					entry.CostCacheWrite = v
+				}
+			}
 			if v, ok := fmap["cost_input"].(float64); ok {
 				entry.CostInput = v
 			}
@@ -244,6 +262,14 @@ func flattenModelsDev(body []byte) ([]ModelsDevEntry, error) {
 			}
 			if v, ok := fmap["cost_cache_write"].(float64); ok {
 				entry.CostCacheWrite = v
+			}
+			if limit, ok := fmap["limit"].(map[string]any); ok {
+				if v, ok := limit["output"].(float64); ok && entry.MaxTokens == 0 {
+					entry.MaxTokens = int(v)
+				}
+				if v, ok := limit["context"].(float64); ok && entry.ContextLength == 0 {
+					entry.ContextLength = int(v)
+				}
 			}
 			if v, ok := fmap["reasoning"].(bool); ok {
 				entry.Reasoning = v
