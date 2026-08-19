@@ -8,6 +8,7 @@ import { ProvidersPanel } from "../../../lib/providers/ProvidersPanel";
 import { GitSshPanel } from "../../../lib/ssh/GitSshPanel";
 import { SshServerPanel } from "../../../lib/ssh/SshServerPanel";
 import { TopNav } from "../../../lib/components/TopNav";
+import { CliToolsPanel } from "../../../lib/cli/CliToolsPanel";
 import {
   SUPPORTED_LOCALES,
   type Locale,
@@ -157,6 +158,7 @@ export default function SettingsPage() {
           <div className="flex flex-col gap-8">
             <GitSshPanel />
             <SshServerPanel />
+            <CliToolsPanel />
           </div>
         )}
 
