@@ -78,6 +78,12 @@ func (h *ModelsCatalogHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	if h.Rates != nil && currency != "USD" {
 		_ = h.Rates.Refresh(r.Context())
 	}
+	// Lazy-warm the models.dev cache on the first request after
+	// api startup so the picker actually has entries. Refresh is
+	// serialized via an in-flight channel so concurrent first
+	// requests don't hammer models.dev; subsequent requests get
+	// the cached snapshot for up to TTL.
+	_ = h.Catalog.Refresh(r.Context())
 	entries := h.Catalog.Snapshot()
 	var providers LoginProvidersProvider
 	if h.LoginProviders != nil {
