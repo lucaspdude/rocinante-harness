@@ -3,14 +3,16 @@ package files
 // HTTP handler for /api/v1/files. Read-only, gated by FileAccess.
 //
 // Routes:
-//   GET /api/v1/files?root=...&path=...              -> dir listing
-//   GET /api/v1/files/content?root=...&path=...     -> file body
-//   GET /api/v1/git/repos?cwd=...                   -> git repo BFS
-//   GET /api/v1/git/status?cwd=...                  -> porcelain status
-//   GET /api/v1/cwd/browse?path=...                 -> DirectoryPicker
+//   GET   /api/v1/files?root=...&path=...           -> dir listing
+//   GET   /api/v1/files/content?root=...&path=...  -> file body
+//   PATCH /api/v1/files/content?root=...&path=...  -> replace file body
+//   GET   /api/v1/git/repos?cwd=...                -> git repo BFS
+//   GET   /api/v1/git/status?cwd=...               -> porcelain status
+//   GET   /api/v1/cwd/browse?path=...              -> DirectoryPicker
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -200,6 +202,145 @@ func (h *FilesHandler) ContentHandler(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.Copy(w, f); err != nil {
 		return
 	}
+}
+
+// WriteHandler is PATCH /api/v1/files/content?root=...&path=... — replaces
+// the file's contents with the JSON body. Validates allow-list, refuses
+// binary files (NUL in first 1 KiB), caps at 1 MiB, writes atomically.
+func (h *FilesHandler) WriteHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPatch {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "use PATCH")
+		return
+	}
+	q := r.URL.Query()
+	root := q.Get("root")
+	if root == "" {
+		writeErr(w, http.StatusBadRequest, "invalid_path", "root required")
+		return
+	}
+	rel := q.Get("path")
+	if rel == "" {
+		writeErr(w, http.StatusBadRequest, "invalid_path", "path required")
+		return
+	}
+	if hasParentTraversal(rel) {
+		writeErr(w, http.StatusBadRequest, "invalid_path", "path must not contain '..' segments")
+		return
+	}
+	target, err := Resolve(root, rel)
+	if err != nil {
+		writeErr(w, http.StatusForbidden, "path_outside_allowlist", err.Error())
+		return
+	}
+	if !h.Access.IsAllowed(target) {
+		writeErr(w, http.StatusForbidden, "path_outside_allowlist", "root not allowed")
+		return
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeErr(w, http.StatusNotFound, "file_not_found", target)
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "stat_failed", err.Error())
+		return
+	}
+	if !info.Mode().IsRegular() {
+		writeErr(w, http.StatusBadRequest, "not_a_regular_file", "path is not a regular file")
+		return
+	}
+	// Detect binary by reading the first 1 KiB of the existing file.
+	if isBinary, err := isBinaryFile(target); err != nil {
+		writeErr(w, http.StatusInternalServerError, "read_failed", err.Error())
+		return
+	} else if isBinary {
+		writeErr(w, http.StatusConflict, "not_a_text_file", "existing file is binary (NUL in first 1 KiB)")
+		return
+	}
+	if r.ContentLength > maxFileBytes {
+		writeErr(w, http.StatusRequestEntityTooLarge, "file_too_large", "request body exceeds 1 MiB")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxFileBytes+1)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		var mb *http.MaxBytesError
+		if errors.As(err, &mb) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "file_too_large", "request body exceeds 1 MiB")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	if int64(len(body)) > maxFileBytes {
+		writeErr(w, http.StatusRequestEntityTooLarge, "file_too_large", "request body exceeds 1 MiB")
+		return
+	}
+	var payload struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	dir := filepath.Dir(target)
+	tmp, err := os.CreateTemp(dir, ".tmp-write-*")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "tmp_open_failed", err.Error())
+		return
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.WriteString(payload.Content); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		writeErr(w, http.StatusInternalServerError, "write_failed", err.Error())
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		writeErr(w, http.StatusInternalServerError, "write_failed", err.Error())
+		return
+	}
+	if err := os.Chmod(tmpName, info.Mode().Perm()); err != nil {
+		os.Remove(tmpName)
+		writeErr(w, http.StatusInternalServerError, "chmod_failed", err.Error())
+		return
+	}
+	if err := os.Rename(tmpName, target); err != nil {
+		os.Remove(tmpName)
+		writeErr(w, http.StatusInternalServerError, "rename_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"path": target, "size": len(payload.Content)})
+}
+
+// hasParentTraversal reports whether rel contains a '..' segment
+// (e.g. "../foo", "a/../b", "a/..").
+func hasParentTraversal(rel string) bool {
+	for _, seg := range strings.Split(rel, string(filepath.Separator)) {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// isBinaryFile peeks at the first 1 KiB of p and reports whether
+// the file looks binary (NUL byte present). It is a heuristic; the
+// caller is the WriteHandler that uses it to refuse to overwrite
+// binary files with text-editor output.
+func isBinaryFile(p string) (bool, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	head := make([]byte, 1024)
+	n, err := f.Read(head)
+	if err != nil && err != io.EOF {
+		return false, err
+	}
+	return containsNUL(head[:n]), nil
 }
 
 func containsNUL(b []byte) bool {
