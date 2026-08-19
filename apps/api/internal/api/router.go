@@ -123,6 +123,7 @@ if deps.AuthState != nil {
 			if deps.Files != nil {
 				r.Get("/api/v1/files", deps.Files.ListHandler)
 				r.Get("/api/v1/files/content", deps.Files.ContentHandler)
+				r.Patch("/api/v1/files/content", deps.Files.WriteHandler)
 				// PR-02: folder picker mount.
 				r.Get("/api/v1/cwd/browse", deps.Files.BrowseHandler)
 			}
