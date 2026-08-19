@@ -33,4 +33,15 @@ pnpm exec playwright test \
   --config "$E2E_DIR/playwright.config.ts" \
   "$@"
 
+# Phase-3 smoke scripts run headless against the live api/web (PRs #51-#61).
+# Each script is short, exits 0 on success, and is independent of playwright.
+for phase_script in \
+  "$REPO_ROOT/scripts/smoke-phase-19-chat-first.sh" \
+  "$REPO_ROOT/scripts/smoke-phase-20-picker-recovery.sh" \
+  "$REPO_ROOT/scripts/smoke-phase-21-file-editor.sh" \
+  "$REPO_ROOT/scripts/smoke-phase-22-polish.sh"; do
+  echo ">>> $phase_script"
+  bash "$phase_script"
+done
+
 echo "smoke-e2e OK"
