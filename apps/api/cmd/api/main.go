@@ -184,9 +184,10 @@ func main() {
 				},
 				ModelsCatalog: modelsCatalogHandler,
 				Projects: &api.ProjectsHandlers{
-					Registry: projectReg,
-					Sessions: manager,
-					Home:     home,
+					Registry:   projectReg,
+					Sessions:   manager,
+					Home:       home,
+					FileAccess: fileAccess,
 				},
 				Clone: &api.CloneHandlers{
 					Jobs:       projects.NewCloneJobs(),
