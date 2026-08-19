@@ -1,6 +1,7 @@
 import { I18nProvider } from "../../lib/i18n";
 import type { Locale } from "../../lib/i18n/schema";
 import { ToastProvider, ToastViewport } from "../../lib/toast";
+import { StatusMount } from "../../lib/status/StatusMount";
 
 export default async function LocaleLayout({
   children,
@@ -15,6 +16,7 @@ export default async function LocaleLayout({
       <ToastProvider>
         {children}
         <ToastViewport />
+        <StatusMount />
       </ToastProvider>
     </I18nProvider>
   );
