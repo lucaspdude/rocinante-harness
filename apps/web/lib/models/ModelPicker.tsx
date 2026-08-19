@@ -9,7 +9,7 @@
 // reasoning, thinking_supported, auth_supported).
 
 import { useEffect, useRef, useState } from "react";
-import { useT } from "../i18n";
+import { useLocale, useT } from "../i18n";
 import { useModelCatalog, type ModelEntry } from "./useModelCatalog";
 
 interface ModelPickerProps {
@@ -17,11 +17,44 @@ interface ModelPickerProps {
   onChange: (modelId: string) => void;
 }
 
+// formatPrice returns a locale-aware string for a per-token USD
+// price (input/output). When a converted amount + currency is
+// supplied by the server (PR-11), we render that with the user's
+// Intl.NumberFormat so $3.00 becomes R$ 15,30 for pt-BR. Falls
+// back to the raw USD price with a (USD) suffix when no
+// conversion was applied.
+function formatPrice(opts: {
+  locale: string;
+  usd?: number;
+  local?: number;
+  currency?: string;
+}): string {
+  const { locale, usd, local, currency } = opts;
+  if (local != null && currency) {
+    try {
+      return new Intl.NumberFormat(locale, {
+        style: "currency",
+        currency,
+        maximumFractionDigits: 2,
+      }).format(local);
+    } catch {
+      // Unknown currency code — fall through to USD formatting.
+    }
+  }
+  if (usd == null) return "";
+  return `${new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(usd)} (USD)`;
+}
+
 export function ModelPicker({ value, onChange }: ModelPickerProps) {
   const t = useT();
+  const locale = useLocale();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const { models, loading, stale } = useModelCatalog(query);
+  const { models, loading, stale } = useModelCatalog(query, locale);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -113,6 +146,23 @@ export function ModelPicker({ value, onChange }: ModelPickerProps) {
                     </span>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-1 text-[10px] text-[var(--color-fg-muted)]">
+                    {m.cost_input != null ? (
+                      <span
+                        title={
+                          m.currency && m.currency !== "USD"
+                            ? `~${m.cost_input.toFixed(2)} USD / M tokens`
+                            : "USD / M tokens"
+                        }
+                        className="px-1 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      >
+                        {formatPrice({
+                          locale,
+                          usd: m.cost_input,
+                          local: m.cost_input_local,
+                          currency: m.currency,
+                        })}
+                      </span>
+                    ) : null}
                     {m.reasoning ? (
                       <span
                         title="Supports reasoning"

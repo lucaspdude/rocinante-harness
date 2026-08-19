@@ -18,15 +18,19 @@ import (
 type ModelsCatalogHandler struct {
 	Catalog         *catalog.ModelsDevCatalog
 	LoginProviders  LoginProvidersProvider
+	Rates           *catalog.RatesCache
 	MaxQueryLength  int
 	MaxLimit        int
 }
 
 // NewModelsCatalogHandler returns a handler with sensible defaults.
-func NewModelsCatalogHandler(c *catalog.ModelsDevCatalog, lp LoginProvidersProvider) *ModelsCatalogHandler {
+// `rates` may be nil — the handler then skips per-locale conversion
+// and serves the canonical USD-only wire format.
+func NewModelsCatalogHandler(c *catalog.ModelsDevCatalog, lp LoginProvidersProvider, rates *catalog.RatesCache) *ModelsCatalogHandler {
 	return &ModelsCatalogHandler{
 		Catalog:        c,
 		LoginProviders: lp,
+		Rates:          rates,
 		MaxQueryLength: 120,
 		MaxLimit:       50,
 	}
@@ -62,7 +66,18 @@ func (h *ModelsCatalogHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			limit = v
 		}
 	}
+	locale := r.URL.Query().Get("locale")
+	if locale == "" {
+		locale = "en-US"
+	}
+	currency := catalog.CurrencyForLocale(locale)
 
+	// Best-effort rate refresh. If the rate service is down we
+	// just serve the USD-only response (no per-locale fields).
+	// The errors are already logged inside Refresh.
+	if h.Rates != nil && currency != "USD" {
+		_ = h.Rates.Refresh(r.Context())
+	}
 	entries := h.Catalog.Snapshot()
 	var providers LoginProvidersProvider
 	if h.LoginProviders != nil {
@@ -78,6 +93,19 @@ func (h *ModelsCatalogHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	results := catalog.Search(entries, q, providerFilter, selectableOnly, limit)
 	if results == nil {
 		results = []catalog.ModelsDevEntry{}
+	}
+	if h.Rates != nil && currency != "USD" {
+		for i := range results {
+			if in, ok := h.Rates.Convert(results[i].CostInput, currency); ok {
+				results[i].CostInputLocal = &in
+			}
+			if out, ok := h.Rates.Convert(results[i].CostOutput, currency); ok {
+				results[i].CostOutputLocal = &out
+			}
+			if results[i].CostInputLocal != nil || results[i].CostOutputLocal != nil {
+				results[i].Currency = currency
+			}
+		}
 	}
 	stale := h.Catalog.Stale()
 

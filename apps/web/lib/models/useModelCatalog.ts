@@ -3,9 +3,14 @@
 // Hook for /api/v1/models/catalog. PR-02 spec: 1h TTL on the
 // server; the web side caches per-render and revalidates on every
 // poll. For now we just fetch when the search query changes.
+//
+// PR-11: pass the user's locale to the catalog endpoint so the
+// server can attach per-locale price fields (cost_input_local,
+// cost_output_local, currency) to each entry.
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import type { Locale } from "../i18n/schema";
 
 export type AuthKind = "paste-key" | "oauth" | "keyless";
 
@@ -18,6 +23,9 @@ export interface ModelEntry {
   modalities?: string[];
   cost_input?: number;
   cost_output?: number;
+  cost_input_local?: number;
+  cost_output_local?: number;
+  currency?: string;
   cost_cache_read?: number;
   cost_cache_write?: number;
   reasoning?: boolean;
@@ -34,7 +42,11 @@ interface CatalogResponse {
   stale: boolean;
 }
 
-export function useModelCatalog(query: string, debounceMs = 200): {
+export function useModelCatalog(
+  query: string,
+  locale: Locale = "en-US",
+  debounceMs = 200
+): {
   models: ModelEntry[];
   loading: boolean;
   error: string | null;
@@ -51,7 +63,7 @@ export function useModelCatalog(query: string, debounceMs = 200): {
       setLoading(true);
       try {
         const res = await api.get<CatalogResponse>(
-          `/api/v1/models/catalog?q=${encodeURIComponent(query)}&selectable=true&limit=10`,
+          `/api/v1/models/catalog?q=${encodeURIComponent(query)}&selectable=true&limit=10&locale=${encodeURIComponent(locale)}`,
           { unauthenticated: true }
         );
         if (cancelled) return;
@@ -69,7 +81,7 @@ export function useModelCatalog(query: string, debounceMs = 200): {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [query, debounceMs]);
+  }, [query, locale, debounceMs]);
 
   return { models, loading, error, stale };
 }
