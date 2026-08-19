@@ -76,17 +76,25 @@ func NewRouter(deps RouterDeps) http.Handler {
 		r.Get("/api/v1/login/{jobId}/status", h.LoginStatusHandler)
 	}
 
-	// PR-02: public models.dev catalog.
-	if deps.ModelsCatalog != nil {
-		r.Get("/api/v1/models/catalog", deps.ModelsCatalog.ServeHTTP)
-	}
+// PR-02: public models.dev catalog.
+if deps.ModelsCatalog != nil {
+	r.Get("/api/v1/models/catalog", deps.ModelsCatalog.ServeHTTP)
+}
 
-	if deps.AuthState != nil {
-		idem := middleware.IdempotencyMiddleware(deps.Idempotency)
-		r.Post("/api/v1/login", WrapHandler(idem, LoginHandler(deps.AuthState)))
-		r.Post("/api/v1/refresh", WrapHandler(idem, RefreshHandler(deps.AuthState)))
-		r.Post("/api/v1/pairing/redeem", WrapHandler(idem, PairingRedeemHandler(deps.AuthState)))
-	}
+// PR-03: /api/v1/me is intentionally public so the DirectoryPicker
+// can read it before login. The response shape (home / user / host)
+// exposes where the harness is installed; acceptable for single-tenant
+// LAN use. If a multi-tenant model ships later, gate this behind
+// AuthMW — see phase-3 docs/mvp/phase-3-polishing/02-areas/03
+// §5.3 (Risks).
+r.Get("/api/v1/me", MeHandler)
+
+if deps.AuthState != nil {
+	idem := middleware.IdempotencyMiddleware(deps.Idempotency)
+	r.Post("/api/v1/login", WrapHandler(idem, LoginHandler(deps.AuthState)))
+	r.Post("/api/v1/refresh", WrapHandler(idem, RefreshHandler(deps.AuthState)))
+	r.Post("/api/v1/pairing/redeem", WrapHandler(idem, PairingRedeemHandler(deps.AuthState)))
+}
 
 	// Auth-protected endpoints. Devices + Logout + Pairing-init were
 	// already in the original auth group; we add the rest here.
@@ -128,8 +136,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 				r.Post("/api/v1/cli-tools/{id}/login/start", ct.LoginStartHandler)
 				r.Post("/api/v1/cli-tools/{id}/login/{jobId}/ack", ct.AckLoginHandler)
 			}
-			// PR-02: /api/v1/me — exposes home/user/host to the picker.
-			r.Get("/api/v1/me", MeHandler)
+
 		})
 	}
 
