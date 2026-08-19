@@ -6,6 +6,7 @@ import { api } from "../../../lib/api/client";
 import { tokenStore } from "../../../lib/auth/token-store";
 import { ProvidersPanel } from "../../../lib/providers/ProvidersPanel";
 import { GitSshPanel } from "../../../lib/ssh/GitSshPanel";
+import { SshServerPanel } from "../../../lib/ssh/SshServerPanel";
 import { TopNav } from "../../../lib/components/TopNav";
 import {
   SUPPORTED_LOCALES,
@@ -152,7 +153,12 @@ export default function SettingsPage() {
 
         {tab === "providers" && <ProvidersPanel />}
 
-        {tab === "developer" && <GitSshPanel />}
+        {tab === "developer" && (
+          <div className="flex flex-col gap-8">
+            <GitSshPanel />
+            <SshServerPanel />
+          </div>
+        )}
 
         {tab === "account" && (
           <section className="rh-card flex flex-col gap-4">
