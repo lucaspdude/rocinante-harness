@@ -7,7 +7,7 @@
 // (active parameter) so the right sidebar only refetches while the
 // chat session is actively streaming or awaiting.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 
 export interface FileEntry {
@@ -121,6 +121,26 @@ export interface FileContent {
   binary: boolean;
   loading: boolean;
   error: string | null;
+  save: (content: string) => Promise<void>;
+}
+
+const ONE_MIB = 1 << 20;
+
+// saveFileContent PATCHes /api/v1/files/content with the new buffer.
+// Throws ApiClientError on non-2xx (the existing client throws it for
+// any !res.ok); callers can pass the error straight to toast.error().
+// The Content-Length header advertises the body size so the api can
+// reject >1 MiB without buffering twice.
+export async function saveFileContent(
+  root: string,
+  path: string,
+  content: string
+): Promise<void> {
+  const url = `/api/v1/files/content?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`;
+  await api.patch(url, {
+    json: { content },
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 export function useFileContent(root: string, path: string): FileContent {
@@ -170,8 +190,20 @@ export function useFileContent(root: string, path: string): FileContent {
     };
   }, [root, path]);
 
-  return { text, binary, loading, error };
+  const save = useCallback(
+    async (content: string) => {
+      await saveFileContent(root, path, content);
+      setText(content);
+    },
+    [root, path]
+  );
+
+  return { text, binary, loading, error, save };
 }
+
+// Reference to keep ONE_MIB available in the editor without forcing
+// the editor file to re-import this constant directly.
+export const FILE_EDITOR_MAX_BYTES = ONE_MIB;
 
 export interface GitStatus {
   files: { path: string; status: string }[];

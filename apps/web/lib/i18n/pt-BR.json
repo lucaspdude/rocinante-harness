@@ -369,5 +369,12 @@
   "toast.errorBadge": "Erro",
   "toast.warningBadge": "Aviso",
   "toast.infoBadge": "Info",
-  "toast.successBadge": "Sucesso"
+  "toast.successBadge": "Sucesso",
+  "files.editor.edit": "Editar",
+  "files.editor.cancel": "Cancelar",
+  "files.editor.save": "Salvar",
+  "files.editor.saved": "Salvo {path}",
+  "files.editor.saveFailed": "Falha ao salvar: {message}",
+  "files.editor.readOnly": "Somente leitura",
+  "files.editor.tooLarge": "Arquivo grande demais para editar no navegador. Abra em um terminal."
 }
