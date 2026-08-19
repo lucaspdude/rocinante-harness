@@ -104,10 +104,10 @@ export default function SettingsPage() {
           </button>
           <button
             type="button"
-            className={`rh-tab ${tab === "account" ? "rh-tab-active" : ""}`}
-            onClick={() => setTab("account")}
+            className={`rh-tab ${tab === "devices" ? "rh-tab-active" : ""}`}
+            onClick={() => setTab("devices")}
           >
-            {t("settings.account")}
+            {t("settings.devices")}
           </button>
         </div>
 
