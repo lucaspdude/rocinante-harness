@@ -36,7 +36,7 @@ jobs:
                 -o "$out" ./cmd/api
           done
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: api-binaries
           path: dist/api-*
@@ -48,7 +48,7 @@ jobs:
       - name: Build harness
         run: bash scripts/build-harness.sh
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: harness-binaries
           path: apps/harness/bin/roc-harness-*
@@ -85,7 +85,7 @@ jobs:
           mkdir -p ../../dist
           tar -czf ../../dist/web.tar.gz -C .next/standalone .
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-bundle
           path: dist/web.tar.gz
