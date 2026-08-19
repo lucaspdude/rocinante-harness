@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT, useI18n } from "../../../lib/i18n";
 import { api } from "../../../lib/api/client";
 import { tokenStore } from "../../../lib/auth/token-store";
@@ -13,6 +13,11 @@ import {
   SUPPORTED_LOCALES,
   type Locale,
 } from "../../../lib/i18n/schema";
+import {
+  useActiveTab,
+  type SubId,
+  type TabId,
+} from "../../../lib/settings/useActiveTab";
 
 interface Device {
   id: string;
@@ -22,14 +27,29 @@ interface Device {
   last_seen_at: string;
 }
 
-type Tab = "general" | "providers" | "developer" | "account" | "devices";
+const TAB_ORDER: TabId[] = [
+  "general",
+  "providers",
+  "account",
+  "developer",
+  "devices",
+];
 
 export default function SettingsPage() {
   const t = useT();
   const i18n = useI18n();
-  const [tab, setTab] = useState<Tab>("general");
+  const { tab, sub, setTab, isReady } = useActiveTab();
   const [devices, setDevices] = useState<Device[]>([]);
   const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
+
+  // Refs to each developer-tools sub-section. Used by the
+  // scroll-into-view effect below to anchor a deep link
+  // (?tab=developer&sub=clis) on the right sub-section.
+  const subRefs = useRef<Record<SubId, HTMLDivElement | null>>({
+    ssh: null,
+    servers: null,
+    clis: null,
+  });
 
   useEffect(() => {
     api
@@ -44,6 +64,29 @@ export default function SettingsPage() {
       | null;
     if (stored) setTheme(stored);
   }, []);
+
+  // Scroll the active sub-section (or the tab strip, for non-developer
+  // tabs) into view whenever the URL-driven state changes. Wrapped in
+  // rAF + a small safety timeout to make sure the DOM has the new
+  // sub-section mounted before scrolling — see PR-10 spec §5.2.
+  useEffect(() => {
+    if (!isReady) return;
+    const targetId =
+      tab === "developer" ? `rh-settings-sub-${sub}` : `rh-settings-tabs`;
+    const run = () => {
+      const el = document.getElementById(targetId);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    };
+    const raf = requestAnimationFrame(() => {
+      run();
+      // Safety net: if the developer tab just opened, the sub-section
+      // element may mount on the next paint. Retry once after 50ms.
+      window.setTimeout(run, 50);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [tab, sub, isReady]);
 
   function setAndPersistTheme(next: "light" | "dark" | "system") {
     setTheme(next);
@@ -69,48 +112,32 @@ export default function SettingsPage() {
     window.location.href = `/${i18n.locale}/login`;
   }
 
+  function setTabAndMaybeSub(next: TabId) {
+    if (next === "developer") setTab(next, sub);
+    else setTab(next);
+  }
+
   return (
     <>
       <TopNav />
       <main className="max-w-3xl mx-auto px-4 py-8">
         <h1 className="text-2xl font-semibold mb-6">{t("settings.title")}</h1>
 
-        <div className="rh-tabs">
-          <button
-            type="button"
-            className={`rh-tab ${tab === "general" ? "rh-tab-active" : ""}`}
-            onClick={() => setTab("general")}
-          >
-            {t("settings.general")}
-          </button>
-          <button
-            type="button"
-            className={`rh-tab ${tab === "providers" ? "rh-tab-active" : ""}`}
-            onClick={() => setTab("providers")}
-          >
-            {t("providers.title")}
-          </button>
-          <button
-            type="button"
-            className={`rh-tab ${tab === "account" ? "rh-tab-active" : ""}`}
-            onClick={() => setTab("account")}
-          >
-            {t("settings.account")}
-          </button>
-          <button
-            type="button"
-            className={`rh-tab ${tab === "developer" ? "rh-tab-active" : ""}`}
-            onClick={() => setTab("developer")}
-          >
-            {t("settings.developer")}
-          </button>
-          <button
-            type="button"
-            className={`rh-tab ${tab === "devices" ? "rh-tab-active" : ""}`}
-            onClick={() => setTab("devices")}
-          >
-            {t("settings.devices")}
-          </button>
+        <div id="rh-settings-tabs" className="rh-tabs">
+          {TAB_ORDER.map((id) => (
+            <button
+              key={id}
+              type="button"
+              className={`rh-tab ${tab === id ? "rh-tab-active" : ""}`}
+              onClick={() => setTabAndMaybeSub(id)}
+            >
+              {t(
+                id === "providers"
+                  ? "providers.title"
+                  : `settings.${id}`,
+              )}
+            </button>
+          ))}
         </div>
 
         {tab === "general" && (
@@ -156,9 +183,30 @@ export default function SettingsPage() {
 
         {tab === "developer" && (
           <div className="flex flex-col gap-8">
-            <GitSshPanel />
-            <SshServerPanel />
-            <CliToolsPanel />
+            <div
+              id="rh-settings-sub-ssh"
+              ref={(el) => {
+                subRefs.current.ssh = el;
+              }}
+            >
+              <GitSshPanel />
+            </div>
+            <div
+              id="rh-settings-sub-servers"
+              ref={(el) => {
+                subRefs.current.servers = el;
+              }}
+            >
+              <SshServerPanel />
+            </div>
+            <div
+              id="rh-settings-sub-clis"
+              ref={(el) => {
+                subRefs.current.clis = el;
+              }}
+            >
+              <CliToolsPanel />
+            </div>
           </div>
         )}
 
