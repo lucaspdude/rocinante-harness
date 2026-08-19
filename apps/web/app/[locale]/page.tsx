@@ -13,12 +13,34 @@ export default function HomePage() {
   const lp = useLocalizedPath();
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
 
+  // Fetch api onboarding state.
   useEffect(() => {
     api
       .get<{ initialized: boolean }>("/api/v1/onboarding/status")
       .then((s) => setNeedsSetup(!s.initialized))
       .catch(() => setNeedsSetup(false));
   }, []);
+
+  // Forward authed user to /agent/new (the daily-driver surface).
+  // Runs after needsSetup resolves. Replace (not push) so the back
+  // button skips the marketing page. Onboarding params suppress
+  // the redirect so the user can recover mid-flow.
+  useEffect(() => {
+    if (needsSetup !== false) return;
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (
+      sp.has("onboarding") ||
+      sp.has("code") ||
+      sp.has("device") ||
+      sp.has("token")
+    ) {
+      return;
+    }
+    if (tokenStore.peek()) {
+      router.replace(lp("/agent/new"));
+    }
+  }, [needsSetup, router, lp]);
 
   // While we don't yet know the api's state, render a small
   // loading hint instead of the action buttons. Avoids a
@@ -58,29 +80,6 @@ export default function HomePage() {
       </>
     );
   }
-  // Authed user with no onboarding flow in flight: forward to
-  // the daily-driver surface. The needsSetup === null branch
-  // already returned a loading hint, so by the time this effect
-  // fires we have a final answer. replace (not push) so the back
-  // button skips the marketing page. The onboarding param check
-  // runs inside the effect (not at render) so it stays client-only
-  // and the page stays SSR-safe.
-  useEffect(() => {
-    if (needsSetup !== false) return;
-    if (typeof window === "undefined") return;
-    const sp = new URLSearchParams(window.location.search);
-    if (
-      sp.has("onboarding") ||
-      sp.has("code") ||
-      sp.has("device") ||
-      sp.has("token")
-    ) {
-      return;
-    }
-    if (tokenStore.peek()) {
-      router.replace(lp("/agent/new"));
-    }
-  }, [needsSetup, router, lp]);
 
   // Un-authed: single Sign in CTA. The old two-button gate was
   // visible-but-useless for users without a token.
@@ -93,12 +92,15 @@ export default function HomePage() {
           {t("app.tagline")}
         </p>
         <div className="rh-card">
-          <a
-            href={lp("/login")}
-            className="rh-button-primary inline-block"
-          >
-            {t("login.submit")}
-          </a>
+          <p className="text-[var(--color-fg-muted)]">{t("agent.empty")}</p>
+          <div className="mt-4 flex gap-3">
+            <a
+              href={lp("/login")}
+              className="rh-button-primary inline-block"
+            >
+              {t("login.submit")}
+            </a>
+          </div>
         </div>
       </main>
     </>
