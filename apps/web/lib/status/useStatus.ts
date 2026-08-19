@@ -7,12 +7,28 @@
 // localStorage 'rh:status-meta' on mount for instant display and
 // re-validates.
 //
+// State machine (independent signals):
+//   healthState   — pending | ok | fail (3 consecutive failures)
+//   metaOutcome   — pending | ok | omp_not_found | failed
+//   ompKnown      — last successful meta reported a non-empty omp_version
+//
+// Note: api_version is the release tag (e.g. "v1.6.4") and
+// omp_version is the omp binary's own version (e.g. "omp/17.3.4").
+// They never match — the green/amber distinction tracks whether
+// omp was successfully loaded, NOT version equality.
+//
+// kind = classify(healthState, metaOutcome, ompKnown) →
+//   ok      (green)  : healthState="ok" && metaOutcome="ok" && ompKnown
+//   partial (amber)  : healthState="ok" && (metaOutcome="omp_not_found" || !ompKnown)
+//   fail    (red)    : healthState="fail"
+//   loading (gray)   : healthState="pending"
+//
 // Polling guards (intervalMs = 0 → run once, never re-arm) match
 // the v1.0.2 lesson that bit us in useProjects / useFiles: never
 // pass 0 to setInterval.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../api/client";
+import { ApiClientError, api } from "../api/client";
 
 const HEALTH_INTERVAL_MS = 30_000;
 const META_INTERVAL_MS = 60_000;
@@ -26,6 +42,8 @@ type TimerId = ReturnType<typeof setTimeout>;
 type TimerMap = Partial<Record<"meta" | "health" | "retry" | "paused", TimerId>>;
 
 export type StatusKind = "ok" | "partial" | "fail" | "loading";
+export type MetaOutcome = "pending" | "ok" | "omp_not_found" | "failed";
+export type HealthState = "pending" | "ok" | "fail";
 
 export interface StatusMeta {
   api_version: string;
@@ -77,14 +95,22 @@ function writeCachedMeta(meta: CachedMeta): void {
   }
 }
 
-export function classify(apiV: string, ompV: string): StatusKind {
-  if (apiV && ompV && apiV === ompV) return "ok";
-  if (apiV && ompV) return "partial";
-  if (apiV) return "partial";
-  return "loading";
+export function classify(
+  healthState: HealthState,
+  metaOutcome: MetaOutcome,
+  ompKnown: boolean,
+): StatusKind {
+  if (healthState === "fail") return "fail";
+  if (healthState === "pending") return "loading";
+  // healthState === "ok"
+  if (metaOutcome === "ok" && ompKnown) return "ok";
+  return "partial";
 }
 
 function errorMessage(e: unknown): string {
+  if (e instanceof ApiClientError) {
+    return e.body?.message ?? e.body?.code ?? `HTTP ${e.status}`;
+  }
   const err = e as { body?: { message?: string }; message?: string };
   return err.body?.message ?? err.message ?? "network";
 }
@@ -96,17 +122,35 @@ export function useStatus(): StatusState {
   const [lastOkAt, setLastOkAt] = useState<number | null>(cached?.cachedAt ?? null);
   const [lastFailAt, setLastFailAt] = useState<number | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [kind, setKind] = useState<StatusKind>(cached ? "ok" : "loading");
   const [recheckToken, setRecheckToken] = useState(0);
+
+  // Independent signals held in refs so the classifier can
+  // recompute without re-rendering every state slice.
+  const healthStateRef = useRef<HealthState>("pending");
+  const metaOutcomeRef = useRef<MetaOutcome>(cached ? "ok" : "pending");
+  const ompKnownRef = useRef<boolean>(!!cached?.ompVersion);
+  const [kind, setKind] = useState<StatusKind>(
+    classify("pending", cached ? "ok" : "pending", !!cached?.ompVersion),
+  );
 
   const cancelledRef = useRef(false);
   const healthFailuresRef = useRef(0);
-  const timersRef = useRef<TimerMap>({});
   const metaFailuresRef = useRef(0);
+  const timersRef = useRef<TimerMap>({});
 
   const recheck = useCallback(() => {
     setRecheckToken((n) => n + 1);
   }, []);
+
+  function recomputeKind() {
+    setKind(
+      classify(
+        healthStateRef.current,
+        metaOutcomeRef.current,
+        ompKnownRef.current,
+      ),
+    );
+  }
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -130,6 +174,8 @@ export function useStatus(): StatusState {
         if (cancelledRef.current) return false;
         if (res?.ok === true) {
           healthFailuresRef.current = 0;
+          healthStateRef.current = "ok";
+          recomputeKind();
           return true;
         }
         healthFailuresRef.current += 1;
@@ -148,17 +194,36 @@ export function useStatus(): StatusState {
           unauthenticated: true,
         });
         if (cancelledRef.current) return null;
+        const apiV = res?.api_version ?? "";
+        const ompV = res?.omp_version ?? "";
         metaFailuresRef.current = 0;
+        metaOutcomeRef.current = "ok";
+        ompKnownRef.current = ompV.length > 0;
+        setApiVersion(apiV);
+        setOmpVersion(ompV);
+        writeCachedMeta({
+          apiVersion: apiV,
+          ompVersion: ompV,
+          cachedAt: Date.now(),
+        });
+        recomputeKind();
         return res;
       } catch (e: unknown) {
         if (cancelledRef.current) return null;
         metaFailuresRef.current += 1;
+        if (e instanceof ApiClientError && e.status === 503 && e.body?.code === "omp_not_found") {
+          metaOutcomeRef.current = "omp_not_found";
+        } else {
+          metaOutcomeRef.current = "failed";
+        }
         setLastError(errorMessage(e));
+        recomputeKind();
         return null;
       }
     }
 
     function enterUnreachable() {
+      healthStateRef.current = "fail";
       setKind("fail");
       timersRef.current.paused = setTimeout(() => {
         if (cancelledRef.current) return;
@@ -212,14 +277,6 @@ export function useStatus(): StatusState {
         const res = await fetchMeta();
         if (cancelledRef.current) return;
         if (res) {
-          setApiVersion(res.api_version ?? "");
-          setOmpVersion(res.omp_version ?? "");
-          setKind((prev) => classify(res.api_version ?? "", res.omp_version ?? ""));
-          writeCachedMeta({
-            apiVersion: res.api_version ?? "",
-            ompVersion: res.omp_version ?? "",
-            cachedAt: Date.now(),
-          });
           scheduleMeta();
           return;
         }
@@ -231,19 +288,9 @@ export function useStatus(): StatusState {
     async function bootstrap() {
       const [healthOk, meta] = await Promise.all([checkHealth(), fetchMeta()]);
       if (cancelledRef.current) return;
-      if (meta) {
-        setApiVersion(meta.api_version ?? "");
-        setOmpVersion(meta.omp_version ?? "");
-        writeCachedMeta({
-          apiVersion: meta.api_version ?? "",
-          ompVersion: meta.omp_version ?? "",
-          cachedAt: Date.now(),
-        });
-      }
       if (healthOk) {
         setLastOkAt(Date.now());
         setLastError(null);
-        setKind(classify(meta?.api_version ?? "", meta?.omp_version ?? ""));
       } else {
         setLastFailAt(Date.now());
         if (healthFailuresRef.current >= HEALTH_FAILURE_THRESHOLD) {
@@ -257,7 +304,6 @@ export function useStatus(): StatusState {
               if (ok) {
                 setLastOkAt(Date.now());
                 setLastError(null);
-                setKind((cur) => (cur === "fail" ? "ok" : cur));
                 scheduleHealth();
                 return;
               }
