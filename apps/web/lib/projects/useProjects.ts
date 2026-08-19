@@ -46,6 +46,11 @@ export interface CloneStartResponse {
   url: string;
   target: string;
 }
+export interface BulkProjectResult {
+  archived?: number;
+  deleted?: number;
+  errors?: Array<{ path: string; code: string; message?: string }>;
+}
 
 export function useProjects(intervalMs = 5000, enabled = true): {
   projects: Project[];
@@ -56,6 +61,8 @@ export function useProjects(intervalMs = 5000, enabled = true): {
   register: (input: CreateProjectInput) => Promise<Project>;
   patch: (path: string, name?: string, description?: string) => Promise<Project>;
   hide: (path: string, hidden?: boolean) => Promise<void>;
+  bulkArchive: (paths: string[]) => Promise<BulkProjectResult>;
+  bulkDelete: (paths: string[], confirmPath: string) => Promise<BulkProjectResult>;
   startClone: (input: CloneProjectInput) => Promise<CloneStartResponse>;
 } {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -136,6 +143,51 @@ export function useProjects(intervalMs = 5000, enabled = true): {
     []
   );
 
+  const bulkArchive = useCallback(
+    async (paths: string[]): Promise<BulkProjectResult> => {
+      const res = await api.post<BulkProjectResult>("/api/v1/projects/bulk", {
+        json: { op: "archive", paths },
+      });
+      // Optimistically hide successful entries; reload reconciles.
+      setProjects((cur) => {
+        const failed = new Set(
+          (res.errors ?? []).map((e) => e.path),
+        );
+        return cur.map((p) =>
+          paths.includes(p.path) && !failed.has(p.path)
+            ? { ...p, hidden: true }
+            : p
+        );
+      });
+      reload();
+      return res;
+    },
+    [reload]
+  );
+
+  const bulkDelete = useCallback(
+    async (paths: string[], confirmPath: string): Promise<BulkProjectResult> => {
+      const res = await api.post<BulkProjectResult>("/api/v1/projects/bulk", {
+        json: { op: "delete", paths, confirmPath },
+      });
+      // Optimistically mark deleted entries hidden; the api already
+      // wiped the on-disk directory and Hide()'d the registry entry.
+      setProjects((cur) => {
+        const failed = new Set(
+          (res.errors ?? []).map((e) => e.path),
+        );
+        return cur.map((p) =>
+          paths.includes(p.path) && !failed.has(p.path)
+            ? { ...p, hidden: true }
+            : p
+        );
+      });
+      reload();
+      return res;
+    },
+    [reload]
+  );
+
   const startClone = useCallback(async (input: CloneProjectInput) => {
     return api.post<CloneStartResponse>("/api/v1/projects/clone", {
       json: input,
@@ -151,6 +203,8 @@ export function useProjects(intervalMs = 5000, enabled = true): {
     register,
     patch,
     hide,
+    bulkArchive,
+    bulkDelete,
     startClone,
   };
 }

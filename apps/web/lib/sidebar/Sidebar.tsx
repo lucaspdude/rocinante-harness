@@ -16,7 +16,7 @@ import {
   type OrphanSession,
 } from "../projects/useProjects";
 import { useCreateProjectDialog } from "../projects/CreateProjectDialogProvider";
-
+import { BulkActionBar } from "./BulkActionBar";
 interface ActiveSession {
   id: string;
   title: string;
@@ -47,6 +47,10 @@ export function Sidebar({
   const [sessions, setSessions] = useState<Record<string, ActiveSession[]>>({});
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [activePath, setActivePath] = useState<string | null>(null);
+  // PR-07: bulk-select state. We keep an ordered Set (path ->
+  // presence) so toggling and re-rendering is O(1). A plain array
+  // would force dedup on every toggle.
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
 
   // PR-02: shared "+ New project" opener. Prefer the prop override
   // (legacy callers), else the shared dialog context, else send
@@ -122,12 +126,28 @@ export function Sidebar({
     [sessions, orphans]
   );
 
+  // PR-07: bulk-select helpers. We keep selectedPaths as a plain
+  // array (order is stable on insert; toggle re-derives membership).
+  const visiblePaths = useMemo(
+    () => projects.filter((p) => !p.hidden).map((p) => p.path),
+    [projects],
+  );
+  const toggleSelected = (path: string) => {
+    setSelectedPaths((cur) =>
+      cur.includes(path) ? cur.filter((p) => p !== path) : [...cur, path],
+    );
+  };
+  const clearSelected = () => setSelectedPaths([]);
+  const toggleSelectAll = () => {
+    setSelectedPaths((cur) =>
+      cur.length === visiblePaths.length ? [] : visiblePaths,
+    );
+  };
   function persistTab(tab: string) {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(TAB_KEY, tab);
     }
   }
-
   if (collapsed) {
     return (
       <aside className="w-12 border-r border-[var(--color-border)] bg-[var(--color-bg-elevated)] flex flex-col items-center py-2 gap-2">
@@ -205,6 +225,8 @@ export function Sidebar({
                 sessions={sessions[p.path] ?? []}
                 active={activePath === p.path}
                 activeSessionId={activeId}
+                selected={selectedPaths.includes(p.path)}
+                onToggleSelect={() => toggleSelected(p.path)}
                 onSelect={() => {
                   setActivePath(p.path);
                   persistTab("files");
@@ -242,6 +264,14 @@ export function Sidebar({
           {t("sidebar.title")}
         </a>
       </footer>
+      {selectedPaths.length > 0 ? (
+        <BulkActionBar
+          selected={selectedPaths}
+          allPaths={visiblePaths}
+          onClear={clearSelected}
+          onToggleSelectAll={toggleSelectAll}
+        />
+      ) : null}
     </aside>
   );
 }
@@ -251,6 +281,8 @@ function ProjectCard({
   sessions,
   active,
   activeSessionId,
+  selected,
+  onToggleSelect,
   onSelect,
   onStartSession,
   onDeleteSession,
@@ -259,6 +291,8 @@ function ProjectCard({
   sessions: ActiveSession[];
   active: boolean;
   activeSessionId?: string;
+  selected: boolean;
+  onToggleSelect: () => void;
   onSelect: () => void;
   onStartSession: () => void;
   onDeleteSession: (id: string) => void;
@@ -274,21 +308,31 @@ function ProjectCard({
           : "border-transparent"
       }`}
     >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="text-left"
-      >
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-medium text-sm truncate">{project.name}</span>
-          <span className="text-xs text-[var(--color-fg-muted)]">
-            {project.session_count}
-          </span>
-        </div>
-        <div className="text-xs text-[var(--color-fg-muted)] font-mono truncate">
-          {project.path}
-        </div>
-      </button>
+      <div className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={selected}
+          onChange={onToggleSelect}
+          aria-label={t("projects.bulk.selectAll") + " " + project.name}
+          onClick={(e) => e.stopPropagation()}
+        />
+        <button
+          type="button"
+          onClick={onSelect}
+          className="text-left flex-1"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium text-sm truncate">{project.name}</span>
+            <span className="text-xs text-[var(--color-fg-muted)]">
+              {project.session_count}
+            </span>
+          </div>
+          <div className="text-xs text-[var(--color-fg-muted)] font-mono truncate">
+            {project.path}
+          </div>
+        </button>
+      </div>
       <div className="flex flex-col gap-0.5">
         {sessions.length === 0 ? (
           <button

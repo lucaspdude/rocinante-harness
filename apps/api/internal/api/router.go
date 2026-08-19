@@ -117,8 +117,9 @@ if deps.AuthState != nil {
 					r.Get("/api/v1/projects/clone/{jobId}/stream", deps.Clone.CloneStreamHandler)
 					r.Get("/api/v1/projects/clone/{jobId}/status", deps.Clone.CloneStatusHandler)
 				}
+				// PR-07: bulk archive / delete from disk.
+				r.Post("/api/v1/projects/bulk", deps.Projects.BulkHandler)
 			}
-
 			// PR-07: file + git.
 			if deps.Files != nil {
 				r.Get("/api/v1/files", deps.Files.ListHandler)
