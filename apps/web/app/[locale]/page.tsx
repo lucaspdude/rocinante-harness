@@ -58,34 +58,29 @@ export default function HomePage() {
       </>
     );
   }
-
-  // Onboarding query params (?onboarding=, ?code=, ?device=,
-  // ?token=) indicate the user is mid-onboarding. Do not
-  // redirect — let them land on the homepage CTAs so they can
-  // recover.
-  const hasOnboardingParam = (() => {
-    if (typeof window === "undefined") return false;
-    const sp = new URLSearchParams(window.location.search);
-    return (
-      sp.has("onboarding") ||
-      sp.has("code") ||
-      sp.has("device") ||
-      sp.has("token")
-    );
-  })();
-
   // Authed user with no onboarding flow in flight: forward to
   // the daily-driver surface. The needsSetup === null branch
   // already returned a loading hint, so by the time this effect
   // fires we have a final answer. replace (not push) so the back
-  // button skips the marketing page.
+  // button skips the marketing page. The onboarding param check
+  // runs inside the effect (not at render) so it stays client-only
+  // and the page stays SSR-safe.
   useEffect(() => {
     if (needsSetup !== false) return;
-    if (hasOnboardingParam) return;
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (
+      sp.has("onboarding") ||
+      sp.has("code") ||
+      sp.has("device") ||
+      sp.has("token")
+    ) {
+      return;
+    }
     if (tokenStore.peek()) {
       router.replace(lp("/agent/new"));
     }
-  }, [needsSetup, router, lp, hasOnboardingParam]);
+  }, [needsSetup, router, lp]);
 
   // Un-authed: single Sign in CTA. The old two-button gate was
   // visible-but-useless for users without a token.
