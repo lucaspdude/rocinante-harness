@@ -254,7 +254,7 @@ func resolveOmp(flag string) (staticMetaLoader, string) {
 	if err != nil {
 		return staticMetaLoader{}, ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
 	sess, err := omp.Spawn(ctx, omp.Options{OpBin: bin})
 	if err != nil {
