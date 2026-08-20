@@ -51,7 +51,7 @@ export function StatusPill(props: StatusPillProps) {
         type="button"
         data-testid="status-pill"
         onClick={() => setOpen(true)}
-        className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-1 text-xs shadow"
+        className="fixed bottom-12 right-4 z-40 flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-1 text-xs shadow"
         aria-label={t("status.modal.title")}
       >
         <span
