@@ -1,18 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ModelPicker } from "../../../../lib/models/ModelPicker";
-import { useSelectedModel } from "../../../../lib/models/useSelectedModel";
+import { RH_COMPOSER_SEND } from "../../../../lib/keyboard/useShortcuts";
 
 interface ComposerProps {
   busy: boolean;
-  // PR-02: renamed 2nd param from `modelId` to `model` for consistency
-  // with /api/v1/sessions/{id}/prompt and the rest of the picker
-  // pipeline. The body field is `model` (api accepts both `model`
-  // and `modelId`); useChatSession already dispatches the same
-  // value into state.model so the composer can re-seed after
-  // reloads via useSelectedModel below.
-  onSend: (text: string, model?: string) => void;
+  onSend: (text: string, modelId?: string) => void;
   onAbort: () => void;
   placeholder: string;
   sendLabel: string;
@@ -30,29 +24,31 @@ export function Composer({
   defaultModelId,
 }: ComposerProps) {
   const [text, setText] = useState("");
-  // Seed from localStorage first; fall back to the defaultModelId
-  // prop (state.model from useChatSession) and finally to "".
-  // useSelectedModel picks the right value on mount without
-  // clobbering the user's stored pick when the prop changes.
-  const { selectedModel, selectModel } = useSelectedModel(defaultModelId ?? "");
-  function submit() {
+  const [modelId, setModelId] = useState(defaultModelId ?? "");
+
+  const submit = useCallback(() => {
     if (text.trim() === "") return;
-    onSend(text, selectedModel || undefined);
+    onSend(text, modelId || undefined);
     setText("");
-  }
+  }, [text, modelId, onSend]);
+
+  // PR-09: Cmd/Ctrl+Enter is handled by the global useShortcuts hook
+  // mounted in the root layout, which dispatches `rh:composer-send`.
+  // Listening here keeps the local onKeyDown textarea clean of
+  // modifier logic and lets the same shortcut work for any future
+  // composer mounted anywhere in the app.
+  useEffect(() => {
+    window.addEventListener(RH_COMPOSER_SEND, submit);
+    return () => window.removeEventListener(RH_COMPOSER_SEND, submit);
+  }, [submit]);
+
   return (
     <div className="flex flex-col gap-2">
-      <ModelPicker value={selectedModel} onChange={selectModel} />
+      <ModelPicker value={modelId} onChange={setModelId} />
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder={placeholder}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-            e.preventDefault();
-            submit();
-          }
-        }}
         rows={3}
         aria-label={placeholder}
         className="rh-input resize-none"
