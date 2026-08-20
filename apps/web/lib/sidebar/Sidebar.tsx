@@ -46,6 +46,7 @@ export function Sidebar({
   const dialog = useCreateProjectDialog();
   const { projects, orphans, loading } = useProjects(5000);
   const [sessions, setSessions] = useState<Record<string, ActiveSession[]>>({});
+  const [sessionsLoaded, setSessionsLoaded] = useState<boolean>(false);
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const activePath = activeProjectPath ?? null;
   // PR-07: bulk-select state. We keep an ordered Set (path ->
@@ -91,6 +92,7 @@ export function Sidebar({
           map[g.omp_cwd] = g.sessions;
         }
         setSessions(map);
+        setSessionsLoaded(true);
       } catch {
         // ignore — registry poll will retry
       }
@@ -107,6 +109,22 @@ export function Sidebar({
     () => Object.values(sessions).reduce((n, list) => n + list.length, 0) + orphans.length,
     [sessions, orphans]
   );
+
+  // BUG 1 (PR-fix-batch-2): sort projects so the ones with live
+  // sessions float to the top, empty projects sink to the bottom.
+  // Without this the sidebar lists every project in registry
+  // order and a long list of empty projects dominates the scroll.
+  const visibleProjects = useMemo(() => {
+    const empty: RegistryProject[] = [];
+    const nonEmpty: RegistryProject[] = [];
+    for (const p of projects) {
+      if (p.hidden) continue;
+      const list = sessions[p.path] ?? [];
+      if (list.length > 0) nonEmpty.push(p);
+      else empty.push(p);
+    }
+    return [...nonEmpty, ...empty];
+  }, [projects, sessions]);
 
   // PR-07: bulk-select helpers. We keep selectedPaths as a plain
   // array (order is stable on insert; toggle re-derives membership).
@@ -200,7 +218,15 @@ export function Sidebar({
           </div>
         ) : (
           <ul className="flex flex-col gap-3">
-            {projects.map((p) => (
+            {!sessionsLoaded && (
+              <li
+                data-testid="sidebar-loading-sessions"
+                className="px-2 py-1 text-xs text-[var(--color-fg-subtle)] italic"
+              >
+                {t("sidebar.loadingSessions")}
+              </li>
+            )}
+            {visibleProjects.map((p) => (
               <ProjectCard
                 key={p.path}
                 project={p}
@@ -222,6 +248,7 @@ export function Sidebar({
                 onDeleteSession={async (id) => {
                   await api.delete(`/api/v1/sessions/${id}`);
                 }}
+                compact={(sessions[p.path] ?? []).length === 0}
               />
             ))}
             {orphans.length > 0 && (
@@ -267,6 +294,7 @@ function ProjectCard({
   onSelect,
   onStartSession,
   onDeleteSession,
+  compact = false,
 }: {
   project: RegistryProject;
   sessions: ActiveSession[];
@@ -277,13 +305,15 @@ function ProjectCard({
   onSelect: () => void;
   onStartSession: () => void;
   onDeleteSession: (id: string) => void;
+  compact?: boolean;
 }) {
   const t = useT();
   const lp = useLocalizedPath();
   return (
     <li
       data-active={active}
-      className={`flex flex-col gap-1 px-2 py-2 rounded border-l-2 ${
+      data-compact={compact}
+      className={`flex flex-col ${compact ? "gap-0 px-2 py-1" : "gap-1 px-2 py-2"} rounded border-l-2 ${
         active
           ? "border-blue-500 bg-[var(--color-bg-card)]"
           : "border-transparent"
