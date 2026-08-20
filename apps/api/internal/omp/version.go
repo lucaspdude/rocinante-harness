@@ -10,11 +10,18 @@ import (
 // Providers is a flat array of provider info entries with the
 // same wire shape as catalog.LoginProviderInfo (capabilities
 // rather than a single auth string).
+//
+// DefaultModel is the server's pre-selected model id (PR-02).
+// Resolved from OMP_DEFAULT_MODEL at request time; falls back
+// to the first selectable model from the catalog handler when
+// the env var is empty. Empty string = no default (client
+// should fall back to its own saved selection or leave empty).
 type MetaResponse struct {
 	APIVersion      string             `json:"api_version"`
 	OmpVersion      string             `json:"omp_version"`
 	ProtocolVersion int                `json:"protocol_version"`
 	OmpBin          string             `json:"omp_bin"`
+	DefaultModel    string             `json:"default_model,omitempty"`
 	Providers       []MetaProviderInfo `json:"providers"`
 }
 
@@ -42,7 +49,13 @@ type ProviderProbe interface {
 // On success (omp_bin resolved), it returns 200. When the omp
 // binary cannot be resolved, it returns 503 with a stable error
 // code. providers is the source of provider rows.
-func NewMetaHandler(loader Loader, apiVersion string, providers []MetaProviderInfo) http.HandlerFunc {
+//
+// defaultModel is the server's pre-selected model id (PR-02). The
+// caller is responsible for resolving it: prefer OMP_DEFAULT_MODEL
+// env, fall back to the first selectable model from the catalog
+// handler. Empty string = "no default" (client should fall back
+// to its own saved selection).
+func NewMetaHandler(loader Loader, apiVersion string, providers []MetaProviderInfo, defaultModel string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		bin := loader.OmpBin()
 		if bin == "" {
@@ -65,6 +78,7 @@ func NewMetaHandler(loader Loader, apiVersion string, providers []MetaProviderIn
 			OmpVersion:      version,
 			ProtocolVersion: protocol,
 			OmpBin:          bin,
+			DefaultModel:    defaultModel,
 			Providers:       providers,
 		})
 	}

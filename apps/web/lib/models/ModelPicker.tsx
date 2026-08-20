@@ -7,16 +7,22 @@
 // Review followup (10-review.md F5): renders the additional
 // fields introduced in ModelsDevEntry (max_tokens, cache cost,
 // reasoning, thinking_supported, auth_supported).
+//
+// PR-02: the trigger button now shows the model's display name
+// and input-cost (when the selected id is in the current catalog
+// window) instead of the raw id. Pick persists the choice to
+// localStorage["rh:selected-model"] so reloads preserve it.
 
 import { useEffect, useRef, useState } from "react";
 import { useLocale, useT } from "../i18n";
 import { useModelCatalog, type ModelEntry } from "./useModelCatalog";
 
+const SELECTED_KEY = "rh:selected-model";
+
 interface ModelPickerProps {
   value: string;
   onChange: (modelId: string) => void;
 }
-
 // formatPrice returns a locale-aware string for a per-token USD
 // price (input/output). When a converted amount + currency is
 // supplied by the server (PR-11), we render that with the user's
@@ -72,9 +78,25 @@ export function ModelPicker({ value, onChange }: ModelPickerProps) {
 
   function pick(m: ModelEntry) {
     onChange(m.id);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(SELECTED_KEY, m.id);
+      } catch {
+        // localStorage may be disabled (private mode, quota); the
+        // in-memory selection still works for this session.
+      }
+    }
     setOpen(false);
     setQuery("");
   }
+
+  // Look up the selected model in the current catalog window so we
+  // can render name + cost on the trigger. When the picked model
+  // has scrolled out of the visible list (e.g. search filtered it
+  // out), fall back to the raw id.
+  const selectedEntry: ModelEntry | undefined = value
+    ? models.find((m) => m.id === value)
+    : undefined;
 
   return (
     <div className="relative" ref={containerRef}>
@@ -85,7 +107,19 @@ export function ModelPicker({ value, onChange }: ModelPickerProps) {
         aria-expanded={open}
         className="rh-button-ghost text-xs w-full truncate text-left"
       >
-        {value ? (
+        {value && selectedEntry ? (
+          <span className="truncate">
+            {t("composer.modelWithCost", {
+              name: selectedEntry.name || selectedEntry.id,
+              cost: formatPrice({
+                locale,
+                usd: selectedEntry.cost_input,
+                local: selectedEntry.cost_input_local,
+                currency: selectedEntry.currency,
+              }),
+            })}
+          </span>
+        ) : value ? (
           <span className="font-mono">{value}</span>
         ) : (
           <span className="text-[var(--color-fg-muted)]">

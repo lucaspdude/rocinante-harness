@@ -16,7 +16,7 @@ export interface ChatState {
   messages: ChatMessage[];
   pendingPrompt: string | null;
   error: string | null;
-  modelId?: string;
+  model?: string;
 }
 
 type Action =
@@ -26,7 +26,7 @@ type Action =
   | { type: "AGENT_END" }
   | { type: "ABORT_OK" }
   | { type: "SET_ERROR"; error: string }
-  | { type: "SET_MODEL"; modelId: string };
+  | { type: "SET_MODEL"; model: string };
 
 function reducer(state: ChatState, action: Action): ChatState {
   switch (action.type) {
@@ -36,7 +36,7 @@ function reducer(state: ChatState, action: Action): ChatState {
         messages: action.messages,
         pendingPrompt: null,
         error: null,
-        modelId: state.modelId,
+        model: state.model,
       };
     case "USER_MESSAGE": {
       const msg: ChatMessage = {
@@ -84,7 +84,7 @@ function reducer(state: ChatState, action: Action): ChatState {
     case "SET_ERROR":
       return { ...state, status: "idle", error: action.error };
     case "SET_MODEL":
-      return { ...state, modelId: action.modelId };
+      return { ...state, model: action.model };
     default:
       return state;
   }
@@ -153,16 +153,16 @@ export function useChatSession(sessionId: string | null) {
   }, [startStream]);
 
   const sendPrompt = useCallback(
-    async (text: string, modelId?: string) => {
+    async (text: string, model?: string) => {
       if (!sessionId) return;
       const idem = crypto.randomUUID();
       dispatch({ type: "USER_MESSAGE", content: text });
-      if (modelId) {
-        dispatch({ type: "SET_MODEL", modelId });
+      if (model) {
+        dispatch({ type: "SET_MODEL", model });
       }
       try {
         await api.post(`/api/v1/sessions/${sessionId}/prompt`, {
-          json: { text, ...(modelId ? { modelId } : {}) },
+          json: { text, ...(model ? { model } : {}) },
           headers: { "Idempotency-Key": idem },
         });
       } catch (err) {

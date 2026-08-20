@@ -5,6 +5,7 @@ package api
 // Public because the catalog is reference info, no auth needed.
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -35,6 +36,31 @@ func NewModelsCatalogHandler(c *catalog.ModelsDevCatalog, lp LoginProvidersProvi
 		MaxLimit:       50,
 	}
 }
+// FirstSelectableID returns the id of the first selectable model
+// from the catalog (PR-02 fallback when OMP_DEFAULT_MODEL is
+// unset). Returns "" when the catalog is empty or no model is
+// selectable. Lazy-warms the catalog snapshot so a freshly-booted
+// api can answer /api/v1/meta with a meaningful default.
+func (h *ModelsCatalogHandler) FirstSelectableID() string {
+	if h == nil || h.Catalog == nil {
+		return ""
+	}
+	_ = h.Catalog.Refresh(context.Background())
+	entries := h.Catalog.Snapshot()
+	if len(entries) == 0 {
+		return ""
+	}
+	if h.LoginProviders != nil {
+		entries = catalog.AnnotateSelectable(append([]catalog.ModelsDevEntry(nil), entries...), h.LoginProviders.List())
+	}
+	for _, e := range entries {
+		if e.Selectable {
+			return e.ID
+		}
+	}
+	return ""
+}
+
 
 func (h *ModelsCatalogHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

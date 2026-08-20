@@ -2,10 +2,17 @@
 
 import { useState } from "react";
 import { ModelPicker } from "../../../../lib/models/ModelPicker";
+import { useSelectedModel } from "../../../../lib/models/useSelectedModel";
 
 interface ComposerProps {
   busy: boolean;
-  onSend: (text: string, modelId?: string) => void;
+  // PR-02: renamed 2nd param from `modelId` to `model` for consistency
+  // with /api/v1/sessions/{id}/prompt and the rest of the picker
+  // pipeline. The body field is `model` (api accepts both `model`
+  // and `modelId`); useChatSession already dispatches the same
+  // value into state.model so the composer can re-seed after
+  // reloads via useSelectedModel below.
+  onSend: (text: string, model?: string) => void;
   onAbort: () => void;
   placeholder: string;
   sendLabel: string;
@@ -23,15 +30,19 @@ export function Composer({
   defaultModelId,
 }: ComposerProps) {
   const [text, setText] = useState("");
-  const [modelId, setModelId] = useState(defaultModelId ?? "");
+  // Seed from localStorage first; fall back to the defaultModelId
+  // prop (state.model from useChatSession) and finally to "".
+  // useSelectedModel picks the right value on mount without
+  // clobbering the user's stored pick when the prop changes.
+  const { selectedModel, selectModel } = useSelectedModel(defaultModelId ?? "");
   function submit() {
     if (text.trim() === "") return;
-    onSend(text, modelId || undefined);
+    onSend(text, selectedModel || undefined);
     setText("");
   }
   return (
     <div className="flex flex-col gap-2">
-      <ModelPicker value={modelId} onChange={setModelId} />
+      <ModelPicker value={selectedModel} onChange={selectModel} />
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
