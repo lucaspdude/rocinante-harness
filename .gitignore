@@ -15,6 +15,7 @@ node_modules/
 coverage/
 *.log
 *.tsbuildinfo
+apps/web/pnpm-lock.yaml
 
 # Next.js dev-time agent rule files (auto-recreated by `next dev`).
 apps/web/AGENTS.md
