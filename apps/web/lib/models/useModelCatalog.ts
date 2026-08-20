@@ -42,6 +42,42 @@ interface CatalogResponse {
   stale: boolean;
 }
 
+// Module-scope cache, same shape as useMe: the catalog is keyed by
+// locale+query and is stable for the lifetime of the page, so a
+// re-opened picker paints the previous results instantly instead of
+// showing an empty dropdown for the debounce + round-trip window.
+const cached = new Map<string, CatalogResponse>();
+const inflight = new Map<string, Promise<CatalogResponse>>();
+
+function catalogKey(query: string, locale: Locale): string {
+  return `${locale}:${query}`;
+}
+
+async function fetchCatalog(
+  query: string,
+  locale: Locale
+): Promise<CatalogResponse> {
+  const key = catalogKey(query, locale);
+  const hit = cached.get(key);
+  if (hit) return hit;
+  const pending = inflight.get(key);
+  if (pending) return pending;
+  const promise = api
+    .get<CatalogResponse>(
+      `/api/v1/models/catalog?q=${encodeURIComponent(query)}&selectable=true&limit=10&locale=${encodeURIComponent(locale)}`,
+      { unauthenticated: true }
+    )
+    .then((res) => {
+      cached.set(key, res);
+      return res;
+    })
+    .finally(() => {
+      inflight.delete(key);
+    });
+  inflight.set(key, promise);
+  return promise;
+}
+
 export function useModelCatalog(
   query: string,
   locale: Locale = "en-US",
@@ -52,20 +88,26 @@ export function useModelCatalog(
   error: string | null;
   stale: boolean;
 } {
-  const [models, setModels] = useState<ModelEntry[]>([]);
+  const seed = cached.get(catalogKey(query, locale));
+  const [models, setModels] = useState<ModelEntry[]>(seed?.results ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stale, setStale] = useState(false);
+  const [stale, setStale] = useState<boolean>(!!seed?.stale);
 
   useEffect(() => {
     let cancelled = false;
+    const key = catalogKey(query, locale);
+    const hit = cached.get(key);
+    if (hit) {
+      setModels(hit.results ?? []);
+      setStale(!!hit.stale);
+      setError(null);
+      return;
+    }
     const handle = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await api.get<CatalogResponse>(
-          `/api/v1/models/catalog?q=${encodeURIComponent(query)}&selectable=true&limit=10&locale=${encodeURIComponent(locale)}`,
-          { unauthenticated: true }
-        );
+        const res = await fetchCatalog(query, locale);
         if (cancelled) return;
         setModels(res.results ?? []);
         setStale(!!res.stale);

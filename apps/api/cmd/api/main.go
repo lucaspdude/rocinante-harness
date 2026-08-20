@@ -148,6 +148,7 @@ func main() {
 	if home == "" {
 		home = "/root"
 	}
+	fileAccess.QuietAllow(home)
 	// PR-03: models.dev catalog handler. Refresh kicks off in the
 	// background so the first GET /api/v1/models/catalog warms the
 	// cache without blocking startup. Shares the same login-providers
