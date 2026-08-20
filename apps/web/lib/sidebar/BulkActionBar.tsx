@@ -33,9 +33,9 @@ interface DeleteDialogProps {
 function DeleteDialog({ open, paths, onCancel, onConfirm }: DeleteDialogProps) {
   const t = useT();
   const [input, setInput] = useState("");
-  // For the prompt: show the first path (single delete) or a count
-  // summary (multi delete — api still requires the literal path).
-  const sample = paths[0] ?? "";
+  // The api requires a literal path to confirm the destructive op. On a
+  // multi-select any of the selected paths is accepted, so the user does
+  // not have to guess which one the dialog picked.
   const isMulti = paths.length > 1;
 
   useEffect(() => {
@@ -43,7 +43,7 @@ function DeleteDialog({ open, paths, onCancel, onConfirm }: DeleteDialogProps) {
   }, [open]);
 
   if (!open) return null;
-  const matches = input === sample;
+  const matches = paths.includes(input);
 
   return (
     <div
@@ -62,13 +62,21 @@ function DeleteDialog({ open, paths, onCancel, onConfirm }: DeleteDialogProps) {
           {t("projects.bulk.deleteBody")}
         </p>
         {isMulti ? (
-          <p className="text-xs text-[var(--color-fg-subtle)]">
-            {paths.length} paths: {sample}, ...
-          </p>
+          <ul className="text-xs text-[var(--color-fg-subtle)] list-disc ml-4">
+            {paths.map((p) => (
+              <li key={p} className="font-mono">
+                {p}
+              </li>
+            ))}
+          </ul>
         ) : null}
         <label className="text-xs flex flex-col gap-1">
           <span className="text-[var(--color-fg-muted)]">
-            {t("projects.bulk.confirmPrompt", { path: sample })}
+            {t("projects.bulk.confirmPrompt", {
+              path: isMulti
+                ? t("projects.bulk.confirmAnyPath")
+                : paths[0] ?? "",
+            })}
           </span>
           <input
             type="text"
@@ -92,7 +100,7 @@ function DeleteDialog({ open, paths, onCancel, onConfirm }: DeleteDialogProps) {
             disabled={!matches}
             onClick={() => {
               if (!matches) return;
-              void onConfirm(sample);
+              void onConfirm(input);
             }}
             className="rh-button-primary px-3 py-1 text-xs disabled:opacity-50 bg-[var(--color-danger,#c0392b)]"
           >

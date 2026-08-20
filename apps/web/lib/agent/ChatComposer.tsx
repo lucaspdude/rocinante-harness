@@ -16,7 +16,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useT, useLocalizedPath } from "../i18n";
 import { useToast } from "../toast";
-import { api, ApiClientError } from "../api/client";
+import { api, ApiClientError, tokenProvider } from "../api/client";
 import { ModelPicker } from "../models/ModelPicker";
 import type { Project } from "../projects/useProjects";
 
@@ -51,6 +51,16 @@ export function ChatComposer({ project }: Props) {
     }
     const trimmed = text.trim();
     if (!trimmed) return;
+    // Creating a session and then opening its SSE stream both require a
+    // bearer token. Without one the stream fails with 401 after the
+    // redirect, stranding the user on a dead chat page — send them to
+    // /login before anything is created.
+    const token = await tokenProvider.getAccess();
+    if (!token) {
+      toast.error(t("composer.signInRequired"));
+      router.replace(lp("/login"));
+      return;
+    }
     setBusy(true);
     try {
       const body: { omp_cwd: string; project_path: string; model?: string } = {

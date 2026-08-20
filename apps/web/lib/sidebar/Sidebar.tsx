@@ -23,7 +23,8 @@ interface ActiveSession {
   omp_cwd: string;
 }
 
-const ACTIVE_KEY = "rh:active-project-path";
+// The selected project lives in AgentShell (rh:selected-project-path);
+// the sidebar is controlled through activeProjectPath/onSelectProject.
 const COLLAPSE_KEY = "rh:sidebar-collapsed";
 const TAB_KEY = "rh:right-sidebar-tab";
 
@@ -46,7 +47,7 @@ export function Sidebar({
   const { projects, orphans, loading } = useProjects(5000);
   const [sessions, setSessions] = useState<Record<string, ActiveSession[]>>({});
   const [collapsed, setCollapsed] = useState<boolean>(false);
-  const [activePath, setActivePath] = useState<string | null>(null);
+  const activePath = activeProjectPath ?? null;
   // PR-07: bulk-select state. We keep an ordered Set (path ->
   // presence) so toggling and re-rendering is O(1). A plain array
   // would force dedup on every toggle.
@@ -66,28 +67,9 @@ export function Sidebar({
   // Read persisted state on mount.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(ACTIVE_KEY);
-    if (stored) setActivePath(stored);
     const c = window.localStorage.getItem(COLLAPSE_KEY);
     if (c === "true") setCollapsed(true);
   }, []);
-
-  // Persist active project.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (activePath) {
-      window.localStorage.setItem(ACTIVE_KEY, activePath);
-    } else {
-      window.localStorage.removeItem(ACTIVE_KEY);
-    }
-  }, [activePath]);
-
-  // Sync active project from outside (parent decides).
-  useEffect(() => {
-    if (activeProjectPath !== undefined) {
-      setActivePath(activeProjectPath || null);
-    }
-  }, [activeProjectPath]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -228,7 +210,6 @@ export function Sidebar({
                 selected={selectedPaths.includes(p.path)}
                 onToggleSelect={() => toggleSelected(p.path)}
                 onSelect={() => {
-                  setActivePath(p.path);
                   persistTab("files");
                   onSelectProject?.(p.path);
                 }}
