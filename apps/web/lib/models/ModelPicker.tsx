@@ -56,6 +56,7 @@ export function ModelPicker({ value, onChange }: ModelPickerProps) {
   const [query, setQuery] = useState("");
   const { models, loading, stale } = useModelCatalog(query, locale);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [openDir, setOpenDir] = useState<"up" | "down">("down");
 
   useEffect(() => {
     function clickAway(e: MouseEvent) {
@@ -68,6 +69,15 @@ export function ModelPicker({ value, onChange }: ModelPickerProps) {
       return () => document.removeEventListener("mousedown", clickAway);
     }
     return;
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const spaceAbove = rect.top;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    setOpenDir(spaceBelow > 320 || spaceBelow > spaceAbove ? "down" : "up");
   }, [open]);
 
   function pick(m: ModelEntry) {
@@ -94,7 +104,7 @@ export function ModelPicker({ value, onChange }: ModelPickerProps) {
         )}
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 left-0 right-0 max-h-80 overflow-hidden rh-card z-10 flex flex-col">
+        <div className={`absolute ${openDir === "down" ? "top-full mt-2" : "bottom-full mb-2"} left-0 right-0 max-h-80 overflow-hidden rh-card z-10 flex flex-col`}>
           <input
             type="search"
             value={query}
