@@ -4,6 +4,13 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import { api, tokenProvider } from "../api/client";
 import { consumeSse } from "../sse/client";
 
+function genId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Array.from({ length: 4 }, () => Math.random().toString(36).slice(2)).join("-") + Date.now().toString(36);
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system" | "tool";
@@ -40,7 +47,7 @@ function reducer(state: ChatState, action: Action): ChatState {
       };
     case "USER_MESSAGE": {
       const msg: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: genId(),
         role: "user",
         content: action.content,
         createdAt: new Date().toISOString(),
@@ -58,7 +65,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           return { ...state, messages: updated };
         }
         const fresh: ChatMessage = {
-          id: crypto.randomUUID(),
+          id: genId(),
           role: "assistant",
           content: text,
           createdAt: new Date().toISOString(),
@@ -155,7 +162,7 @@ export function useChatSession(sessionId: string | null) {
   const sendPrompt = useCallback(
     async (text: string, modelId?: string) => {
       if (!sessionId) return;
-      const idem = crypto.randomUUID();
+      const idem = genId();
       dispatch({ type: "USER_MESSAGE", content: text });
       if (modelId) {
         dispatch({ type: "SET_MODEL", modelId });
