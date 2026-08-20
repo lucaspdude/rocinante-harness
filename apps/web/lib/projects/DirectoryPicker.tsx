@@ -134,12 +134,12 @@ function DirectoryPickerInner({
             : target.startsWith("~/")
             ? home + target.slice(1)
             : target;
-        // The browse endpoint is allow-list gated server-side ($HOME +
-        // registered projects), so it is safe without a bearer token —
-        // and the picker has to work before the user signs in.
+        // /cwd/browse sits behind AuthMW, so the request must carry the
+        // bearer token when one exists. api.get omits the header when
+        // signed out, which yields the 401 the "Sign in" CTA below
+        // handles.
         const res = await api.get<BrowseResponse>(
           `/api/v1/cwd/browse?path=${encodeURIComponent(expanded)}`,
-          { unauthenticated: true },
         );
         setCurrentPath(res.path);
         setParentPath(res.parent ?? null);
