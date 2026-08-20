@@ -135,7 +135,7 @@ func Spawn(ctx context.Context, opts Options) (*Session, error) {
 	}
 
 	br := bufio.NewReader(stdout)
-	hsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	hsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	handshake, leftover, err := readHandshakeWithLeftover(hsCtx, br)
 	if err != nil {
