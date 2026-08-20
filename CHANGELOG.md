@@ -7,6 +7,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.16.2] — 2026-08-20
+
+### Added
+
+- **Session header redesign (PR-06):** Two-row header on the chat page —
+  row 1 = breadcrumb (Workspaces › session name) + agent pill (Bot icon,
+  read-only), row 2 = Chat / Trajectory tab strip. The Trajectory tab
+  surfaces the raw SSE stream (capped at 500 frames) so the user can
+  inspect the agent's tool calls, status events, and any other fields
+  the runtime emits. `lucide-react@^1.33.0` added as a dependency.
+
 ## [1.0.0] — 2026-08-18
 
 ### Added
@@ -80,6 +91,7 @@ Phase 0-13 features shipped: bootstrap, omp bridge, RPC stream,
 commands, auth store, auth api, front bootstrap + i18n, front chat,
 front sidebar, front settings, launcher umbrella, installer + ssh.
 
-[Unreleased]: https://github.com/lucaspdude/rocinante-harness/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/lucaspdude/rocinante-harness/compare/v1.16.2...HEAD
+[1.16.2]: https://github.com/lucaspdude/rocinante-harness/compare/v1.0.0...v1.16.2
 [1.0.0]: https://github.com/lucaspdude/rocinante-harness/releases/tag/v1.0.0
 [0.1.0]: https://github.com/lucaspdude/rocinante-harness/releases/tag/v0.1.0

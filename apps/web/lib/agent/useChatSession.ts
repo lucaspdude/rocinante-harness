@@ -4,18 +4,22 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import { api, tokenProvider } from "../api/client";
 import { consumeSse } from "../sse/client";
 
-function genId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return Array.from({ length: 4 }, () => Math.random().toString(36).slice(2)).join("-") + Date.now().toString(36);
-}
-
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   createdAt: string;
+}
+
+// TrajectoryFrame is the raw SSE envelope the api relays. The chat
+// reducer still parses the same shapes into ChatMessage, but the
+// Trajectory tab (PR-06) renders the original event so the user can
+// inspect the agent's tool calls, reasoning, and any other fields
+// that may arrive in the future. `at` is the wall-clock time the
+// frame arrived client-side; the api does not stamp frames.
+export interface TrajectoryFrame {
+  at: string;
+  frame: Record<string, unknown>;
 }
 
 export interface ChatState {
@@ -24,7 +28,14 @@ export interface ChatState {
   pendingPrompt: string | null;
   error: string | null;
   model?: string;
+  // frames is the rolling window of raw SSE frames. Capped at
+  // MAX_FRAMES so a long run doesn't leak memory; older frames are
+  // dropped from the head when the cap is hit.
+  frames: TrajectoryFrame[];
 }
+
+// Exported for tests; not part of the public API.
+export const MAX_FRAMES = 500;
 
 type Action =
   | { type: "RESET"; messages: ChatMessage[] }
@@ -35,7 +46,8 @@ type Action =
   | { type: "SET_ERROR"; error: string }
   | { type: "SET_MODEL"; model: string };
 
-function reducer(state: ChatState, action: Action): ChatState {
+// Exported for tests; not part of the public API.
+export function chatReducer(state: ChatState, action: Action): ChatState {
   switch (action.type) {
     case "RESET":
       return {
@@ -44,10 +56,11 @@ function reducer(state: ChatState, action: Action): ChatState {
         pendingPrompt: null,
         error: null,
         model: state.model,
+        frames: [],
       };
     case "USER_MESSAGE": {
       const msg: ChatMessage = {
-        id: genId(),
+        id: crypto.randomUUID(),
         role: "user",
         content: action.content,
         createdAt: new Date().toISOString(),
@@ -55,6 +68,14 @@ function reducer(state: ChatState, action: Action): ChatState {
       return { ...state, status: "streaming", messages: [...state.messages, msg] };
     }
     case "FRAME": {
+      const entry: TrajectoryFrame = {
+        at: new Date().toISOString(),
+        frame: action.frame,
+      };
+      const nextFrames =
+        state.frames.length >= MAX_FRAMES
+          ? [...state.frames.slice(state.frames.length - MAX_FRAMES + 1), entry]
+          : [...state.frames, entry];
       const type = action.frame.type as string | undefined;
       if (type === "delta") {
         const text = (action.frame.text as string) ?? "";
@@ -62,27 +83,28 @@ function reducer(state: ChatState, action: Action): ChatState {
         if (last && last.role === "assistant") {
           const updated = [...state.messages];
           updated[updated.length - 1] = { ...last, content: last.content + text };
-          return { ...state, messages: updated };
+          return { ...state, messages: updated, frames: nextFrames };
         }
         const fresh: ChatMessage = {
-          id: genId(),
+          id: crypto.randomUUID(),
           role: "assistant",
           content: text,
           createdAt: new Date().toISOString(),
         };
-        return { ...state, messages: [...state.messages, fresh] };
+        return { ...state, messages: [...state.messages, fresh], frames: nextFrames };
       }
       if (type === "agent_end") {
-        return { ...state, status: "idle" };
+        return { ...state, status: "idle", frames: nextFrames };
       }
       if (type === "error") {
         return {
           ...state,
           status: "idle",
           error: String(action.frame.message ?? "error"),
+          frames: nextFrames,
         };
       }
-      return state;
+      return { ...state, frames: nextFrames };
     }
     case "AGENT_END":
       return { ...state, status: "idle" };
@@ -102,10 +124,11 @@ const initialState: ChatState = {
   messages: [],
   pendingPrompt: null,
   error: null,
+  frames: [],
 };
 
 export function useChatSession(sessionId: string | null) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, dispatch] = useReducer(chatReducer, initialState);
   const ctrlRef = useRef<AbortController | null>(null);
 
   const startStream = useCallback(async () => {
@@ -162,7 +185,7 @@ export function useChatSession(sessionId: string | null) {
   const sendPrompt = useCallback(
     async (text: string, model?: string) => {
       if (!sessionId) return;
-      const idem = genId();
+      const idem = crypto.randomUUID();
       dispatch({ type: "USER_MESSAGE", content: text });
       if (model) {
         dispatch({ type: "SET_MODEL", model });
