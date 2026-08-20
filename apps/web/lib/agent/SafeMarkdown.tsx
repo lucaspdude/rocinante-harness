@@ -119,17 +119,34 @@ function useResolvedTheme(): "dark" | "light" {
 interface SafeMarkdownProps {
   text: string;
   className?: string;
+  // PR-10: model id used to produce this assistant message.
+  // When provided, renders a small unobtrusive pill at the
+  // top-right of the markdown body so users can tell which model
+  // generated each response (especially when switching models
+  // mid-session). User/system/tool messages leave this undefined
+  // and render no pill.
+  model?: string;
 }
 
-export function SafeMarkdown({ text, className }: SafeMarkdownProps) {
+export function SafeMarkdown({ text, className, model }: SafeMarkdownProps) {
   const theme = useResolvedTheme();
   const codeTheme = theme === "dark" ? oneDark : oneLight;
 
   return (
-    <div className={className ?? "markdown-body text-sm"}>
+    <div className={`relative ${className ?? "markdown-body text-sm"}`}>
+      {model ? (
+        <span
+          data-testid="model-pill"
+          className="absolute top-1 right-1 text-[10px] leading-none px-1.5 py-0.5 rounded bg-[var(--color-bg-card)] text-[var(--color-fg-subtle)] border border-[var(--color-border)]"
+          title={model}
+        >
+          {model}
+        </span>
+      ) : null}
       <ReactMarkdown
         urlTransform={safeUrlTransform as UrlTransform}
         remarkPlugins={[remarkGfm]}
+
         rehypePlugins={[]}
         disallowedElements={DISALLOWED_TAGS}
         unwrapDisallowed={false}

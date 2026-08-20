@@ -37,7 +37,7 @@ export function MessageList({ messages }: { messages: ChatMessage[] }) {
               <div className="text-xs uppercase tracking-wide opacity-70 mb-1">
                 {m.role}
               </div>
-              <SafeMarkdown text={m.content} />
+              <SafeMarkdown text={m.content} model={m.model} />
             </div>
           </li>
         );
