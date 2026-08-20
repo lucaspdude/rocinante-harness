@@ -149,6 +149,15 @@ func main() {
 		home = "/root"
 	}
 	fileAccess.QuietAllow(home)
+	// PR-03: also allow the parent dir so the picker can climb
+	// out of $HOME and browse / (and beyond). On LXC hosts where
+	// $HOME=/root, filepath.Dir("/root") == "/", which is the
+	// root the Finder-style picker wants to land on. The allow-
+	// list still gates every other path, so this expansion only
+	// opens the filesystem one level above the user's home.
+	if parent := filepath.Dir(home); parent != home {
+		fileAccess.QuietAllow(parent)
+	}
 	// PR-03: models.dev catalog handler. Refresh kicks off in the
 	// background so the first GET /api/v1/models/catalog warms the
 	// cache without blocking startup. Shares the same login-providers

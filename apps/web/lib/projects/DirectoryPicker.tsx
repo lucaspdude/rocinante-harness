@@ -1,30 +1,24 @@
 "use client";
 
-// DirectoryPicker — modal browser for the host filesystem, used
-// by CreateProjectDialog's "Folder" / "Empty" / "Clone" tabs.
-// Ported from /tmp/rocinante-ref/components/DirectoryPicker.tsx
-// with two adaptations:
+// DirectoryPicker — macOS-Finder-style modal browser for the host
+// filesystem, used by CreateProjectDialog's "Folder" / "Clone" /
+// "Empty" tabs.
 //
-//   - The reference used Base UI + CSS variables for styling;
-//     this repo uses the rh-card / rh-input / rh-button-primary
-//     Tailwind component classes from apps/web/app/globals.css.
-//   - The reference used useModalDialog for focus-trap + ESC;
-//     this repo doesn't have that hook yet, so we omit focus
-//     management (acceptable for the picker — backdrop click
-//     and Cancel button cover the close paths).
+// PR-03 rewrite: Finder-style breadcrumb, search filter, chevron
+// list rows, keyboard navigation (ArrowDown/Up/Enter/Esc). The
+// 401 signed-out CTA row, toast-on-error reporting, and bearer-
+// token transport from the previous implementation carry over
+// verbatim.
 //
 // Endpoint: GET /api/v1/cwd/browse?path=...
 //
-// PR-03 changes:
-//   - D1: bootstrap navigateTo uses "/" when useMe returns the
-//     fallback (no token); the picker no longer waits forever
-//     for the user-home effect to run.
-//   - D2: load errors surface as toasts; no inline <p role="alert">.
-//   - D3: pathInput + handlePathSubmit are always enabled — the
-//     user can still type /root/projects/foo and submit even when
-//     browse fails.
-//   - D5: when the last browse failed with 401, a small CTA row
-//     appears with "Sign in" / "Retry" so the user has a way out.
+// History: lifted from the candystore picker (PR-02 wire). The
+// original used Base UI + CSS variables; this repo uses the
+// rh-card / rh-input / rh-button-* Tailwind component classes from
+// apps/web/app/globals.css. The original had no focus-trap (the
+// repo doesn't ship useModalDialog yet); the new picker focuses
+// the list on open so arrow keys work immediately, and Esc
+// cancels from anywhere inside the dialog.
 
 import {
   useCallback,
@@ -32,13 +26,21 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent,
 } from "react";
+import {
+  ChevronUp,
+  ChevronRight,
+  Folder,
+  Home as HomeIcon,
+  Search as SearchIcon,
+  X,
+} from "lucide-react";
 import { api, ApiClientError } from "../api/client";
 import { useMe } from "../me/useMe";
 import { useT, useLocalizedPath } from "../i18n";
 import { useToast } from "../toast";
 import type { Project } from "./useProjects";
-
 
 interface DirectoryEntry {
   name: string;
@@ -76,6 +78,31 @@ function joinPath(parent: string, child: string): string {
   return `${parent.replace(/\/+$/, "")}/${child}`;
 }
 
+interface Crumb {
+  /** text shown in the breadcrumb button */
+  label: string;
+  /** absolute path the button navigates to */
+  full: string;
+  /** whether this is the "/" root crumb (rendered with icon + "Computer") */
+  isRoot: boolean;
+}
+
+/** Split `currentPath` into clickable breadcrumb segments. */
+function splitSegments(path: string): Crumb[] {
+  const cleaned = stripTrailingSlash(path);
+  if (cleaned === "" || cleaned === "/") {
+    return [{ label: "Computer", full: "/", isRoot: true }];
+  }
+  const parts = cleaned.split("/").filter(Boolean);
+  const out: Crumb[] = [];
+  let acc = "";
+  for (const part of parts) {
+    acc = `${acc}/${part}`;
+    out.push({ label: part, full: acc, isRoot: false });
+  }
+  return out;
+}
+
 export function DirectoryPicker(props: Props) {
   if (props.open === false) return null;
   return <DirectoryPickerInner {...props} />;
@@ -99,25 +126,31 @@ function DirectoryPickerInner({
   const [parentPath, setParentPath] = useState<string | null>(null);
   const [pathInput, setPathInput] = useState<string>(home);
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
+  const [search, setSearch] = useState<string>("");
+  const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   // PR-03 D5 — track whether the last failed browse was a 401
   // so we can show the "Sign in / Retry" CTA row.
   const [authFailed, setAuthFailed] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+  const listRef = useRef<HTMLUListElement>(null);
   const lastLoadErrorRef = useRef<string | null>(null);
   const lastPropErrorRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (loadError && loadError !== lastLoadErrorRef.current) {
       lastLoadErrorRef.current = loadError;
       toast.error(loadError);
     }
   }, [loadError, toast]);
+
   useEffect(() => {
     if (error && error !== lastPropErrorRef.current) {
       lastPropErrorRef.current = error;
       toast.error(error);
     }
   }, [error, toast]);
+
   const navigateTo = useCallback(
     async (directory?: string) => {
       setLoading(true);
@@ -145,6 +178,8 @@ function DirectoryPickerInner({
         setParentPath(res.parent ?? null);
         setPathInput(res.path);
         setEntries(res.entries ?? []);
+        setSearch("");
+        setSelectedIndex(0);
       } catch (e: unknown) {
         const err = e as {
           status?: number;
@@ -204,32 +239,91 @@ function DirectoryPickerInner({
     void navigateTo(currentPath);
   };
 
+  // Filtered entries — case-insensitive substring match on name.
+  const visibleEntries = search
+    ? entries.filter((e) =>
+        e.name.toLowerCase().includes(search.toLowerCase()),
+      )
+    : entries;
+
+  // Clamp selectedIndex when the filter list shrinks.
+  useEffect(() => {
+    if (visibleEntries.length === 0) {
+      if (selectedIndex !== 0) setSelectedIndex(0);
+      return;
+    }
+    if (selectedIndex >= visibleEntries.length) {
+      setSelectedIndex(visibleEntries.length - 1);
+    }
+  }, [visibleEntries.length, selectedIndex]);
+
+  // Re-focus the list whenever navigation completes so arrow keys
+  // work immediately after the user clicks a folder.
+  useEffect(() => {
+    if (!loading && listRef.current) {
+      listRef.current.focus();
+    }
+  }, [loading, currentPath]);
+
+  const handleListKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (visibleEntries.length === 0) return;
+      setSelectedIndex((i) => (i + 1) % visibleEntries.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (visibleEntries.length === 0) return;
+      setSelectedIndex(
+        (i) => (i - 1 + visibleEntries.length) % visibleEntries.length,
+      );
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const entry = visibleEntries[selectedIndex];
+      if (entry?.is_dir) {
+        void navigateTo(joinPath(currentPath, entry.name));
+      }
+    }
+  };
+
+  const handleDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // Esc cancels regardless of focus. Other keys fall through to
+    // the inner list/input handlers so typing in the search box
+    // works normally.
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCancel();
+    }
+  };
+
   const hasUncommittedPath = pathInput.trim() !== currentPath;
   const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy;
+
+  const segments = splitSegments(currentPath);
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="directory-picker-title"
+      onKeyDown={handleDialogKeyDown}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
     >
-      <div className="rh-card w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="rh-card w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
         <header className="flex items-center justify-between mb-3">
           <h2
             id="directory-picker-title"
             className="text-base font-medium"
           >
-            {t("projects.folderPicker.title")}
+            {t("directoryPicker.title")}
           </h2>
           <button
             type="button"
             onClick={onCancel}
             aria-label={t("common.close")}
-            className="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+            className="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-50"
             disabled={busy}
           >
-            ×
+            <X size={18} aria-hidden="true" />
           </button>
         </header>
 
@@ -259,22 +353,63 @@ function DirectoryPickerInner({
           </div>
         )}
 
-        <form
-          onSubmit={handlePathSubmit}
-          className="flex items-center gap-2 mb-3"
-        >
+        {/* Breadcrumb row: Up button + clickable path segments. */}
+        <div className="flex items-center gap-2 mb-2">
           <button
             type="button"
             onClick={() => parentPath && void navigateTo(parentPath)}
             disabled={loading || !parentPath}
-            title={t("projects.folderPicker.upHint")}
-            aria-label={t("projects.folderPicker.up")}
-            className="rh-button-ghost h-9 w-9 p-0 flex items-center justify-center"
+            title={t("directoryPicker.up")}
+            aria-label={t("directoryPicker.up")}
+            className="rh-button-ghost h-9 w-9 p-0 flex items-center justify-center flex-shrink-0"
           >
-            <span aria-hidden="true">↑</span>
+            <ChevronUp size={18} aria-hidden="true" />
           </button>
+          <nav
+            aria-label="breadcrumb"
+            className="flex items-center flex-1 min-w-0 overflow-x-auto text-sm h-9 px-2 rounded border border-[var(--color-border)] bg-[var(--color-bg)]"
+          >
+            {segments.map((seg, i) => (
+              <span
+                key={seg.full}
+                className="flex items-center flex-shrink-0"
+              >
+                {i > 0 && (
+                  <ChevronRight
+                    size={14}
+                    aria-hidden="true"
+                    className="mx-0.5 text-[var(--color-fg-muted)] flex-shrink-0"
+                  />
+                )}
+                <button
+                  type="button"
+                  onClick={() => void navigateTo(seg.full)}
+                  disabled={loading}
+                  className={`px-1 py-0.5 rounded hover:bg-[var(--color-bg-elevated)] whitespace-nowrap flex items-center gap-1 ${
+                    i === segments.length - 1
+                      ? "font-medium text-[var(--color-fg)]"
+                      : "text-[var(--color-fg-muted)]"
+                  }`}
+                  title={seg.full}
+                >
+                  {seg.isRoot ? (
+                    <>
+                      <HomeIcon size={14} aria-hidden="true" />
+                      {t("directoryPicker.breadcrumbHome")}
+                    </>
+                  ) : (
+                    seg.label
+                  )}
+                </button>
+              </span>
+            ))}
+          </nav>
+        </div>
+
+        {/* Path input — direct entry, Enter to navigate. */}
+        <form onSubmit={handlePathSubmit} className="mb-2">
           <label htmlFor="directory-path" className="sr-only">
-            {t("projects.folderPicker.title")}
+            {t("directoryPicker.title")}
           </label>
           <input
             id="directory-path"
@@ -284,19 +419,32 @@ function DirectoryPickerInner({
               setPathInput(e.target.value);
               setLoadError(null);
             }}
-            placeholder={t("projects.folderPicker.title")}
-            autoFocus
+            placeholder="/path/to/folder"
             spellCheck={false}
-            className="rh-input font-mono text-sm flex-1"
+            className="rh-input font-mono text-xs w-full"
           />
-          <button
-            type="submit"
-            disabled={loading || !pathInput.trim()}
-            className="rh-button-ghost text-sm"
-          >
-            {t("projects.folderPicker.open")}
-          </button>
         </form>
+
+        {/* Search filter — narrows the visible folder list. */}
+        <div className="mb-2 relative">
+          <label htmlFor="directory-search" className="sr-only">
+            {t("directoryPicker.search")}
+          </label>
+          <SearchIcon
+            size={14}
+            aria-hidden="true"
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-fg-muted)] pointer-events-none"
+          />
+          <input
+            id="directory-search"
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t("directoryPicker.search")}
+            spellCheck={false}
+            className="rh-input text-sm w-full pl-8"
+          />
+        </div>
 
         <div
           className="flex-1 min-h-0 overflow-auto border border-[var(--color-border)] rounded"
@@ -312,32 +460,52 @@ function DirectoryPickerInner({
                 />
               ))}
             </ul>
-          ) : entries.length > 0 ? (
-            <ul role="list" className="p-1">
-              {entries.map((entry) => {
+          ) : visibleEntries.length > 0 ? (
+            <ul
+              ref={listRef}
+              role="list"
+              tabIndex={0}
+              onKeyDown={handleListKeyDown}
+              className="p-1 outline-none"
+            >
+              {visibleEntries.map((entry, i) => {
                 const fullPath = joinPath(currentPath, entry.name);
                 const inRegistry = registered.has(fullPath);
+                const isSelected = i === selectedIndex;
                 return (
                   <li key={entry.name}>
                     <button
                       type="button"
                       onClick={() => handleEntryClick(entry)}
+                      onMouseEnter={() => setSelectedIndex(i)}
                       disabled={!entry.is_dir}
                       title={fullPath}
-                      className="w-full text-left px-2 py-1.5 rounded font-mono text-xs hover:bg-[var(--color-bg-elevated)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      data-selected={isSelected}
+                      className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 ${
+                        isSelected
+                          ? "bg-[var(--color-primary)] text-[var(--color-primary-fg)]"
+                          : "hover:bg-[var(--color-bg-elevated)]"
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
-                      <span aria-hidden="true">
-                        {entry.is_dir ? "📁" : "📄"}
-                      </span>
+                      <Folder
+                        size={16}
+                        aria-hidden="true"
+                        className="flex-shrink-0"
+                      />
                       <span className="truncate flex-1">{entry.name}</span>
                       {inRegistry && (
                         <span
-                          className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-[var(--color-primary)] text-[var(--color-primary-fg)]"
+                          className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-[var(--color-primary)] text-[var(--color-primary-fg)] flex-shrink-0"
                           aria-label={t("projects.folderPicker.inRegistry")}
                         >
                           {t("projects.folderPicker.inRegistry")}
                         </span>
                       )}
+                      <ChevronRight
+                        size={16}
+                        aria-hidden="true"
+                        className="flex-shrink-0 opacity-60"
+                      />
                     </button>
                   </li>
                 );
@@ -345,10 +513,11 @@ function DirectoryPickerInner({
             </ul>
           ) : (
             <p className="p-3 text-sm text-[var(--color-fg-muted)]">
-              {t("projects.folderPicker.empty")}
+              {search
+                ? t("directoryPicker.empty")
+                : t("projects.folderPicker.empty")}
             </p>
           )}
-
         </div>
 
         <footer className="mt-3 pt-3 flex justify-end gap-2">
@@ -358,7 +527,7 @@ function DirectoryPickerInner({
             disabled={busy}
             className="rh-button-ghost text-sm"
           >
-            {t("projects.folderPicker.cancel")}
+            {t("directoryPicker.cancel")}
           </button>
           <button
             type="button"
@@ -366,7 +535,7 @@ function DirectoryPickerInner({
             disabled={!canSelect}
             className="rh-button-primary text-sm"
           >
-            {t("projects.folderPicker.select")}
+            {t("directoryPicker.select")}
           </button>
         </footer>
       </div>
