@@ -11,33 +11,64 @@ async function login(page: Page) {
 }
 
 test.describe("settings", () => {
-  test("three tabs render and switch", async ({ page }) => {
+  test("modal opens with four rail sections and switches content", async ({
+    page,
+  }) => {
     await login(page);
     await page.goto("/en-US/settings");
 
-    await expect(page.getByRole("button", { name: /General|Geral/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Account|Conta/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Devices|Dispositivos/ })).toBeVisible();
+    // Modal is open + shows all four rail items.
+    await expect(page.getByTestId("rh-settings-modal")).toBeVisible();
+    await expect(page.getByTestId("rh-settings-rail-general")).toBeVisible();
+    await expect(page.getByTestId("rh-settings-rail-providers")).toBeVisible();
+    await expect(page.getByTestId("rh-settings-rail-account")).toBeVisible();
+    await expect(page.getByTestId("rh-settings-rail-developer")).toBeVisible();
 
-    await page.getByRole("button", { name: /Account|Conta/ }).click();
-    await expect(page.getByRole("button", { name: /Sign out|Sair/ })).toBeVisible();
-
-    await page.getByRole("button", { name: /Devices|Dispositivos/ }).click();
+    // Account section renders the sign-out button (the Devices list
+    // is nested inside the Account section in PR-07).
+    await page.getByTestId("rh-settings-rail-account").click();
+    await expect(page.getByTestId("rh-settings-sign-out")).toBeVisible();
   });
 
   test("locale picker changes UI to pt-BR", async ({ page }) => {
     await login(page);
     await page.goto("/en-US/settings");
+    // The locale picker still lives in the General section row.
+    await expect(page.getByTestId("rh-settings-modal")).toBeVisible();
     await page.selectOption("#set-locale", "pt-BR");
     await expect(page).toHaveURL(/\/pt-BR\/settings/);
-    await expect(page.locator("h1")).toContainText(/Configura/i);
+    await expect(
+      page.getByTestId("rh-settings-modal").locator("h1"),
+    ).toContainText(/Configura/i);
+  });
+
+  test("deep link ?section=account opens the account section", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.goto("/en-US/settings?section=account");
+    await expect(page.getByTestId("rh-settings-modal")).toBeVisible();
+    await expect(page.getByTestId("rh-settings-rail-account")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+  });
+
+  test("Esc closes the modal and returns to the home page", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.goto("/en-US/settings");
+    await expect(page.getByTestId("rh-settings-modal")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.waitForURL(/\/(en-US|pt-BR)$/);
   });
 
   test("logout clears tokens and redirects to login", async ({ page }) => {
     await login(page);
     await page.goto("/en-US/settings");
-    await page.getByRole("button", { name: /Account|Conta/ }).click();
-    await page.getByRole("button", { name: /Sign out|Sair/ }).click();
+    await page.getByTestId("rh-settings-rail-account").click();
+    await page.getByTestId("rh-settings-sign-out").click();
     await page.waitForURL(/\/(en-US|pt-BR)\/login/);
   });
 });
