@@ -6,7 +6,7 @@
 // same project); this page renders only the session-less ChatComposer.
 
 import { useProjects, type Project } from "../../../lib/projects/useProjects";
-import { ChatComposer } from "../../../lib/agent/ChatComposer";
+import { SessionlessComposer } from "../../../lib/agent/SessionlessComposer";
 import { useSelectedProject } from "./AgentShell";
 
 export default function AgentHomePage() {
@@ -21,7 +21,7 @@ export default function AgentHomePage() {
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex-1 flex flex-col justify-center min-h-0 overflow-y-auto">
-        <ChatComposer project={project} />
+        <SessionlessComposer project={project} />
       </div>
     </div>
   );
