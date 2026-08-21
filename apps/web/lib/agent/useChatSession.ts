@@ -95,7 +95,7 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
           role: "assistant",
           content: text,
           createdAt: new Date().toISOString(),
-          model: state.modelId,
+          model: state.model,
         };
         return { ...state, messages: [...state.messages, fresh], frames: nextFrames };
       }
