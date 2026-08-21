@@ -98,6 +98,13 @@ export function useProjects(intervalMs = 5000, enabled = true): {
       clearInterval(id);
     };
   }, [intervalMs, enabled, tick]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function onCreated() { setTick((n) => n + 1); }
+    window.addEventListener("rh:project:created", onCreated);
+    return () => window.removeEventListener("rh:project:created", onCreated);
+  }, []);
+
 
   const reload = useCallback(() => setTick((n) => n + 1), []);
 
