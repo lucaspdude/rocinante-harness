@@ -255,6 +255,8 @@
   "projects.folderPicker.inRegistry": "In registry",
   "projects.folderPicker.open": "Open",
   "projects.folderPicker.pickButton": "Pick a folder…",
+  "projects.folderPicker.breadcrumbHome": "Home",
+  "projects.folderPicker.search": "Search",
   "projects.folderPicker.select": "Select",
   "projects.folderPicker.signedOut": "Authentication required",
   "projects.folderPicker.signedOutHint": "Sign in to browse the host filesystem.",

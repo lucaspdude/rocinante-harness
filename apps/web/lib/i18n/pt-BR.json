@@ -255,6 +255,8 @@
   "projects.folderPicker.inRegistry": "No registro",
   "projects.folderPicker.open": "Abrir",
   "projects.folderPicker.pickButton": "Escolher pasta…",
+  "projects.folderPicker.breadcrumbHome": "Início",
+  "projects.folderPicker.search": "Buscar",
   "projects.folderPicker.select": "Selecionar",
   "projects.folderPicker.signedOut": "Autenticação necessária",
   "projects.folderPicker.signedOutHint": "Faça login para navegar no sistema de arquivos do host.",

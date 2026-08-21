@@ -314,7 +314,7 @@ function DirectoryPickerInner({
             id="directory-picker-title"
             className="text-base font-medium"
           >
-            {t("directoryPicker.title")}
+            {t("projects.folderPicker.title")}
           </h2>
           <button
             type="button"
@@ -359,8 +359,8 @@ function DirectoryPickerInner({
             type="button"
             onClick={() => parentPath && void navigateTo(parentPath)}
             disabled={loading || !parentPath}
-            title={t("directoryPicker.up")}
-            aria-label={t("directoryPicker.up")}
+            title={t("projects.folderPicker.up")}
+            aria-label={t("projects.folderPicker.up")}
             className="rh-button-ghost h-9 w-9 p-0 flex items-center justify-center flex-shrink-0"
           >
             <ChevronUp size={18} aria-hidden="true" />
@@ -395,7 +395,7 @@ function DirectoryPickerInner({
                   {seg.isRoot ? (
                     <>
                       <HomeIcon size={14} aria-hidden="true" />
-                      {t("directoryPicker.breadcrumbHome")}
+                      {t("projects.folderPicker.breadcrumbHome")}
                     </>
                   ) : (
                     seg.label
@@ -409,7 +409,7 @@ function DirectoryPickerInner({
         {/* Path input — direct entry, Enter to navigate. */}
         <form onSubmit={handlePathSubmit} className="mb-2">
           <label htmlFor="directory-path" className="sr-only">
-            {t("directoryPicker.title")}
+            {t("projects.folderPicker.title")}
           </label>
           <input
             id="directory-path"
@@ -428,7 +428,7 @@ function DirectoryPickerInner({
         {/* Search filter — narrows the visible folder list. */}
         <div className="mb-2 relative">
           <label htmlFor="directory-search" className="sr-only">
-            {t("directoryPicker.search")}
+            {t("projects.folderPicker.search")}
           </label>
           <SearchIcon
             size={14}
@@ -440,7 +440,7 @@ function DirectoryPickerInner({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("directoryPicker.search")}
+            placeholder={t("projects.folderPicker.search")}
             spellCheck={false}
             className="rh-input text-sm w-full pl-8"
           />
@@ -513,9 +513,7 @@ function DirectoryPickerInner({
             </ul>
           ) : (
             <p className="p-3 text-sm text-[var(--color-fg-muted)]">
-              {search
-                ? t("directoryPicker.empty")
-                : t("projects.folderPicker.empty")}
+              {t("projects.folderPicker.empty")}
             </p>
           )}
         </div>
@@ -527,7 +525,7 @@ function DirectoryPickerInner({
             disabled={busy}
             className="rh-button-ghost text-sm"
           >
-            {t("directoryPicker.cancel")}
+            {t("projects.folderPicker.cancel")}
           </button>
           <button
             type="button"
@@ -535,7 +533,7 @@ function DirectoryPickerInner({
             disabled={!canSelect}
             className="rh-button-primary text-sm"
           >
-            {t("directoryPicker.select")}
+            {t("projects.folderPicker.select")}
           </button>
         </footer>
       </div>
