@@ -132,16 +132,16 @@ describe("chatReducer — frame capture (PR-06 trajectory)", () => {
     expect(getSeq(last)).toBe(MAX_FRAMES + 49);
   });
 
-  it("preserves modelId when RESET clears frames", () => {
+  it("preserves model when RESET clears frames", () => {
     const seeded: ChatState = {
       ...initial,
-      modelId: "claude-sonnet-4",
+      model: "claude-sonnet-4",
       frames: [
         { at: "2026-08-20T00:00:00.000Z", frame: { type: "delta", text: "x" } },
       ],
     };
     const next = chatReducer(seeded, { type: "RESET", messages: [] });
-    expect(next.modelId).toBe("claude-sonnet-4");
+    expect(next.model).toBe("claude-sonnet-4");
     expect(next.frames).toHaveLength(0);
   });
 });

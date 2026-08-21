@@ -22,6 +22,17 @@
 #   ROCINANTE_PASSPHRASE=...   non-interactive init (otherwise the
 #                              installer prompts via /dev/tty)
 #
+# Removed env vars (no longer honored as of v1.16.4, PR-08):
+#   OMP_WEB_THEME=warm-paper|warm-ember|...
+#                              The web picks theme via Settings →
+#                              Appearance (Light / Dark / System),
+#                              persisted in localStorage["rh-theme"]
+#                              and exposed via the HTML color-scheme
+#                              attribute. Historical OMP_WEB_THEME
+#                              values are mapped to the modern
+#                              preference space by useTheme() for
+#                              one boot cycle.
+#
 # What gets written:
 #   $SHARE_DIR/bin/{api,roc-harness,omp}    binaries
 #   $SHARE_DIR/web/apps/web/                 web bundle
