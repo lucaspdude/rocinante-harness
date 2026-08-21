@@ -9,6 +9,11 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   createdAt: string;
+  // PR-10: model used to produce this message. Assistant messages
+  // carry the model id that was active at the time the SSE
+  // stream opened; user / system / tool messages leave it
+  // undefined. The pill in MessageList reads this.
+  model?: string;
 }
 
 // TrajectoryFrame is the raw SSE envelope the api relays. The chat
@@ -90,6 +95,7 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
           role: "assistant",
           content: text,
           createdAt: new Date().toISOString(),
+          model: state.modelId,
         };
         return { ...state, messages: [...state.messages, fresh], frames: nextFrames };
       }

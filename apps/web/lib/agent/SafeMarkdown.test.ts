@@ -209,3 +209,24 @@ describe("SafeMarkdown renderer — raw HTML passthrough", () => {
     expect(html).toContain("&lt;script&gt;");
   });
 });
+
+// PR-10: per-message model pill. When the assistant message carries
+// a model id, SafeMarkdown renders a small <span data-testid="model-pill">
+// at the top-right. User/system/tool messages leave model undefined and
+// render no pill.
+describe("SafeMarkdown renderer — model pill (PR-10)", () => {
+  it("renders the model pill when model is provided", () => {
+    const html = renderToStaticMarkup(
+      createElement(SafeMarkdown, { text: "hello", model: "M2" }),
+    );
+    expect(html).toContain('data-testid="model-pill"');
+    expect(html).toContain(">M2<");
+  });
+
+  it("omits the pill when model is undefined", () => {
+    const html = renderToStaticMarkup(
+      createElement(SafeMarkdown, { text: "hello" }),
+    );
+    expect(html).not.toContain('data-testid="model-pill"');
+  });
+ });
