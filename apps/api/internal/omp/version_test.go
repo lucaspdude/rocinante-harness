@@ -27,6 +27,7 @@ func TestMetaHandlerOmpFound(t *testing.T) {
 		stubLoader{bin: "/usr/local/bin/omp", proto: 2, ver: "omp/17.3.4"},
 		"0.1.0",
 		providers,
+		"minimax/MiniMax-M3",
 	)
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/meta", nil)
@@ -62,10 +63,14 @@ func TestMetaHandlerOmpFound(t *testing.T) {
 	if len(body.Providers[0].EnvVars) != 1 || body.Providers[0].EnvVars[0] != "ANTHROPIC_API_KEY" {
 		t.Errorf("Providers[0].EnvVars = %+v", body.Providers[0].EnvVars)
 	}
+	if body.DefaultModel != "minimax/MiniMax-M3" {
+		t.Errorf("DefaultModel = %q, want minimax/MiniMax-M3", body.DefaultModel)
+	}
+
 }
 
 func TestMetaHandlerOmpMissing(t *testing.T) {
-	h := NewMetaHandler(stubLoader{bin: ""}, "0.1.0", nil)
+	h := NewMetaHandler(stubLoader{bin: ""}, "0.1.0", nil, "")
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/meta", nil)
 	h.ServeHTTP(rr, req)
@@ -74,5 +79,31 @@ func TestMetaHandlerOmpMissing(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "omp_not_found") {
 		t.Errorf("body = %q, want code omp_not_found", rr.Body.String())
+	}
+}
+func TestMetaHandlerEmptyDefault(t *testing.T) {
+	providers := []MetaProviderInfo{{ID: "anthropic", SupportsLogin: true, Authenticated: true}}
+	h := NewMetaHandler(
+		stubLoader{bin: "/usr/local/bin/omp", proto: 2, ver: "omp/17.3.4"},
+		"0.1.0",
+		providers,
+		"",
+	)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/meta", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var body MetaResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v body=%s", err, rr.Body.String())
+	}
+	if body.DefaultModel != "" {
+		t.Errorf("DefaultModel = %q, want empty", body.DefaultModel)
+	}
+	// omitempty should drop the field from the wire format.
+	if strings.Contains(rr.Body.String(), "default_model") {
+		t.Errorf("body should omit default_model when empty, got: %s", rr.Body.String())
 	}
 }

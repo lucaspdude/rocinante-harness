@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"os"
 	"github.com/go-chi/chi/v5"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
@@ -182,5 +183,22 @@ func (d RouterDeps) metaHandler() http.HandlerFunc {
 			})
 		}
 	}
-	return omp.NewMetaHandler(d.MetaLoader, d.APIVersion, rows)
+	return omp.NewMetaHandler(d.MetaLoader, d.APIVersion, rows, resolveDefaultModel(d.ModelsCatalog))
+}
+
+// resolveDefaultModel picks the model id advertised in /api/v1/meta.
+// Priority:
+//  1. OMP_DEFAULT_MODEL env var (allows operators to override).
+//  2. First selectable model from the catalog handler.
+//
+// Returns "" when neither source yields a value. Used by metaHandler
+// so PR-02's client-side persistence has a server-side seed.
+func resolveDefaultModel(mc *ModelsCatalogHandler) string {
+	if v := os.Getenv("OMP_DEFAULT_MODEL"); v != "" {
+		return v
+	}
+	if mc == nil {
+		return ""
+	}
+	return mc.FirstSelectableID()
 }

@@ -18,6 +18,8 @@ import { useT, useLocalizedPath } from "../i18n";
 import { useToast } from "../toast";
 import { api, ApiClientError, tokenProvider } from "../api/client";
 import { ModelPicker } from "../models/ModelPicker";
+import { useDefaultModel } from "../models/useDefaultModel";
+import { useSelectedModel } from "../models/useSelectedModel";
 import type { Project } from "../projects/useProjects";
 
 interface Props {
@@ -34,7 +36,8 @@ export function ChatComposer({ project }: Props) {
   const router = useRouter();
   const toast = useToast();
   const [text, setText] = useState("");
-  const [modelId, setModelId] = useState("");
+  const { defaultModel } = useDefaultModel();
+  const { selectedModel, selectModel } = useSelectedModel(defaultModel);
   const [busy, setBusy] = useState(false);
 
   const disabled = project === null;
@@ -67,7 +70,7 @@ export function ChatComposer({ project }: Props) {
         omp_cwd: project.path,
         project_path: project.path,
       };
-      if (modelId.trim()) body.model = modelId.trim();
+      if (selectedModel) body.model = selectedModel;
       const res = await api.post<CreatedSession>("/api/v1/sessions", {
         json: body,
       });
@@ -99,7 +102,7 @@ export function ChatComposer({ project }: Props) {
 
   return (
     <div className="flex flex-col gap-3 p-6 max-w-3xl w-full mx-auto">
-      <ModelPicker value={modelId} onChange={setModelId} />
+      <ModelPicker value={selectedModel} onChange={selectModel} />
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
