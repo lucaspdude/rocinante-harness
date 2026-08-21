@@ -193,7 +193,7 @@ function ProviderRow({
                 </a>
               )}
               <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-500/10 text-[var(--color-fg-muted)]">
-                {p.supports_login ? "/login" : p.keyless ? "keyless" : "paste-key"}
+                {p.supports_login ? t("providers.badge.oauth") : p.keyless ? t("providers.badge.keyless") : t("providers.badge.pasteKey")}
               </span>
             </div>
             {(p.env_vars ?? []).map((env) => (
