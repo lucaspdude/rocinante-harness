@@ -91,19 +91,23 @@ echo "installed to $SHARE_DIR/bin"
 ls -la "$SHARE_DIR/bin"
 
 # --- web bundle (Next standalone) ------------------------------------
-if [ -d "$SHARE_DIR/web/apps/web" ] && [ -f "$SHARE_DIR/web/apps/web/server.js" ]; then
-  echo ">> web already installed at $SHARE_DIR/web"
-else
-  echo ">> fetching web bundle"
-  curl -fL --retry 3 -o "$SHARE_DIR/.web.tar.gz.tmp" "$URL_BASE/web.tar.gz"
-  tar -xzf "$SHARE_DIR/.web.tar.gz.tmp" -C "$SHARE_DIR/web"
-  rm -f "$SHARE_DIR/.web.tar.gz.tmp"
-  if [ ! -f "$SHARE_DIR/web/apps/web/server.js" ]; then
-    echo "fatal: web bundle did not contain apps/web/server.js" >&2
-    exit 1
-  fi
-  echo ">> web installed to $SHARE_DIR/web"
+# Always re-download on every install invocation. The web bundle is
+# owned by the release pipeline — leaving a stale bundle in place when
+# upgrading strands the user on a previous release's UI (bit us on
+# the v1.22.0 -> v1.23.0 upgrade where the i18n bundle was missing
+# keys). Wipe the existing bundle before extracting so stale files
+# from a previous version are not kept.
+echo ">> fetching web bundle"
+curl -fL --retry 3 -o "$SHARE_DIR/.web.tar.gz.tmp" "$URL_BASE/web.tar.gz"
+rm -rf "$SHARE_DIR/web/apps"
+mkdir -p "$SHARE_DIR/web"
+tar -xzf "$SHARE_DIR/.web.tar.gz.tmp" -C "$SHARE_DIR/web"
+rm -f "$SHARE_DIR/.web.tar.gz.tmp"
+if [ ! -f "$SHARE_DIR/web/apps/web/server.js" ]; then
+  echo "fatal: web bundle did not contain apps/web/server.js" >&2
+  exit 1
 fi
+echo ">> web installed to $SHARE_DIR/web"
 
 # --- omp install (best-effort) ---------------------------------------
 if ! command -v omp >/dev/null 2>&1 && [ ! -x "$SHARE_DIR/bin/omp" ]; then
