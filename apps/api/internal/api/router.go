@@ -24,6 +24,11 @@ type RouterDeps struct {
 	Titles        *titleKey
 	ShareDir      string
 	ProviderKeys  *keystore.Store
+	// Phase-6 PR-1: OMP and ModelsConfigWriter keep models.yml in
+	// sync with the keystore and kill any in-flight sessions when
+	// a provider key changes. May be nil in tests.
+	OMP           OMPKiller
+	Models        *omp.ModelsConfigWriter
 	LoginHandlers *LoginHandlers
 	ModelsCatalog *ModelsCatalogHandler
 	Projects      *ProjectsHandlers
@@ -52,7 +57,11 @@ func NewRouter(deps RouterDeps) http.Handler {
 		r.Post("/api/v1/onboarding/init", OnboardingInit(deps.ShareDir))
 	}
 	if deps.ProviderKeys != nil {
-		ph := &ProvidersHandler{Store: deps.ProviderKeys}
+		ph := &ProvidersHandler{
+			Store:  deps.ProviderKeys,
+			OMP:    deps.OMP,
+			Models: deps.Models,
+		}
 		r.Route("/api/v1/providers", func(r chi.Router) {
 			r.Post("/{name}/key", ph.ServeHTTP)
 			r.Delete("/{name}/key", ph.ServeHTTP)

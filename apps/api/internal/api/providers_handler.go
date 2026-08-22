@@ -3,10 +3,12 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/keystore"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
 )
 
 // ProvidersHandler returns POST/DELETE on
@@ -23,7 +25,16 @@ import (
 // authenticated users can write keys. GET is intentionally not
 // exposed — /api/v1/meta reports boolean status, not values.
 type ProvidersHandler struct {
-	Store *keystore.Store
+	Store   *keystore.Store
+	OMP     OMPKiller
+	Models  *omp.ModelsConfigWriter
+}
+
+// OMPKiller is the minimum surface we need from the omp.Manager:
+// CloseAll() that the handler invokes when a key changes. Defined
+// here (not imported) so providers_handler_test.go can stub it.
+type OMPKiller interface {
+	CloseAll()
 }
 
 func (h *ProvidersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +103,17 @@ func (h *ProvidersHandler) setKey(w http.ResponseWriter, r *http.Request, p keys
 		})
 		return
 	}
+	// Phase-6 PR-1: rewrite ~/.omp/agent/models.yml so the OMP
+	// subprocess sees the new provider on its next spawn, then kill
+	// any in-flight sessions so the next request gets a fresh OMP.
+	if h.Models != nil {
+		if err := h.Models.SyncIfConfigured(h.Store); err != nil && !errors.Is(err, omp.ErrNotConfigured) {
+			log.Printf("providers: models.yml sync failed: %v", err)
+		}
+	}
+	if h.OMP != nil {
+		h.OMP.CloseAll()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"provider": string(p),
 		"stored":   true,
@@ -109,6 +131,14 @@ func (h *ProvidersHandler) deleteKey(w http.ResponseWriter, _ *http.Request, p k
 			})
 			return
 		}
+	}
+	// Phase-6 PR-1: same as setKey — refresh models.yml and kill
+	// any active OMP so the deletion is reflected immediately.
+	if h.Models != nil {
+		_ = h.Models.SyncIfConfigured(h.Store) // best-effort
+	}
+	if h.OMP != nil {
+		h.OMP.CloseAll()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"provider": string(p),
