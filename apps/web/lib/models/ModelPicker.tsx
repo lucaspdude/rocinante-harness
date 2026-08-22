@@ -16,6 +16,14 @@ import { useModelCatalog, type ModelEntry } from "./useModelCatalog";
 interface ModelPickerProps {
   value: string;
   onChange: (modelId: string) => void;
+  /**
+   * Optional priming value shown on first paint when `value` is
+   * empty. The composer passes the user's last persisted model id
+   * (PR-3) so the trigger label never flashes "Pick a model" before
+   * the mount-effect restores state. Once the user opens the menu
+   * the catalog-backed `value` controls the selected highlight.
+   */
+  defaultValue?: string;
 }
 
 // formatPrice returns a locale-aware string for a per-token USD
@@ -50,7 +58,7 @@ function formatPrice(opts: {
   }).format(usd)} (USD)`;
 }
 
-export function ModelPicker({ value, onChange }: ModelPickerProps) {
+export function ModelPicker({ value, onChange, defaultValue = "" }: ModelPickerProps) {
   const t = useT();
   const locale = useLocale();
   const [query, setQuery] = useState("");
@@ -83,8 +91,8 @@ export function ModelPicker({ value, onChange }: ModelPickerProps) {
         if (!open) setQuery("");
       }}
       trigger={
-        value ? (
-          <span className="font-mono">{value}</span>
+        value || defaultValue ? (
+          <span className="font-mono">{value || defaultValue}</span>
         ) : (
           <span className="text-[var(--color-fg-muted)]">
             {t("composer.modelPlaceholder")}

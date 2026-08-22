@@ -29,6 +29,10 @@ import {
 import { ArrowUp, Pencil, Eye, Square } from "lucide-react";
 import { useT } from "../i18n";
 import { ModelPicker } from "../models/ModelPicker";
+import {
+  readSelectedModelId,
+  writeSelectedModelId,
+} from "./selectedModelStorage";
 
 export type AccessMode = "write" | "read";
 
@@ -70,7 +74,29 @@ export function ChatComposer({
   const [text, setText] = useState("");
   const [modelId, setModelId] = useState(defaultModelId);
   const [accessMode, setAccessMode] = useState<AccessMode>(defaultAccessMode);
+  // PR-3: prime the picker label on first paint with the stored model
+  // id, so a refresh never flashes the "Pick a model" placeholder
+  // before the mount-effect restores state. defaultModelId (session
+  // metadata) wins when supplied.
+  const [initialStoredModel] = useState(() =>
+    defaultModelId ? "" : readSelectedModelId() ?? "",
+  );
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // PR-3: restore the user's last selected model from localStorage on
+  // mount. When the session metadata supplies its own defaultModelId
+  // (re-opening a session that ran with a specific model) the in-session
+  // value wins and the stored value is ignored.
+  useEffect(() => {
+    if (defaultModelId) return;
+    const stored = readSelectedModelId();
+    if (stored) setModelId(stored);
+  }, []);
+
+  function pickModel(m: string) {
+    setModelId(m);
+    writeSelectedModelId(m);
+  }
 
   const canSend = !disabled && text.trim().length > 0 && !busy;
 
@@ -182,7 +208,11 @@ export function ChatComposer({
           </button>
         </div>
         <div className="flex items-center gap-1.5 ml-auto">
-          <ModelPicker value={modelId} onChange={setModelId} />
+          <ModelPicker
+            value={modelId}
+            defaultValue={initialStoredModel}
+            onChange={pickModel}
+          />
           {busy && onAbort ? (
             <button
               type="button"
