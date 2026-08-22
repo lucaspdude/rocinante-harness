@@ -26,6 +26,7 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/projects"
 	sshpkg "github.com/lucaspdude/rocinante-harness/apps/api/internal/ssh"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/storage"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/sessions"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/clitools"
 
 )
@@ -183,42 +184,43 @@ func main() {
 	)
 	mux.Handle("/", middleware.TLSHandler(
 		middleware.CORSHandler(middleware.CORSConfig{})(
-			api.NewRouter(api.RouterDeps{
-				MetaLoader:   loader,
-				Manager:      manager,
-				APIVersion:   apiVersion,
-				Idempotency:  idem,
-				AuthState:    authState,
-				AuthMW:       authMW,
-				ShareDir:     effectiveShareDir,
-				ProviderKeys: keystoreStore,
-				OMP:          manager,
-				Models:       modelsWriter,
-				LoginHandlers: &api.LoginHandlers{
-					Providers:  loginProvidersCache,
-					Jobs:       api.NewLoginJobs(),
-					CmdFactory: func(ctx context.Context, name string, args []string) api.CmdIface {
-						return api.OSExec(ctx, name, args...)
-					},
+		api.NewRouter(api.RouterDeps{
+			MetaLoader:   loader,
+			Manager:      manager,
+			APIVersion:   apiVersion,
+			Idempotency:  idem,
+			AuthState:    authState,
+			AuthMW:       authMW,
+			ShareDir:     effectiveShareDir,
+			ProviderKeys: keystoreStore,
+			OMP:          manager,
+			Models:       modelsWriter,
+			LoginHandlers: &api.LoginHandlers{
+				Providers:  loginProvidersCache,
+				Jobs:       api.NewLoginJobs(),
+				CmdFactory: func(ctx context.Context, name string, args []string) api.CmdIface {
+					return api.OSExec(ctx, name, args...)
 				},
-				ModelsCatalog: modelsCatalogHandler,
-				Projects: &api.ProjectsHandlers{
-					Registry:   projectReg,
-					Sessions:   manager,
-					Home:       home,
-					FileAccess: fileAccess,
-				},
-				Clone: &api.CloneHandlers{
-					Jobs:       projects.NewCloneJobs(),
-					Registry:   projectReg,
-					FileAccess: fileAccess,
-				},
-				Files: files.NewFilesHandler(fileAccess, home),
-				Git:   files.NewGitHandler(fileAccess),
-				CliTools: &api.CliToolsHandler{
-					Manager: clitools.NewManager(),
-				},
-			}),
+			},
+			ModelsCatalog: modelsCatalogHandler,
+			Projects: &api.ProjectsHandlers{
+				Registry:   projectReg,
+				Sessions:   manager,
+				Home:       home,
+				FileAccess: fileAccess,
+			},
+			Clone: &api.CloneHandlers{
+				Jobs:       projects.NewCloneJobs(),
+				Registry:   projectReg,
+				FileAccess: fileAccess,
+			},
+			Files: files.NewFilesHandler(fileAccess, home),
+			Git:   files.NewGitHandler(fileAccess),
+			CliTools: &api.CliToolsHandler{
+				Manager: clitools.NewManager(),
+			},
+			SessionsStore: sessions.New(effectiveShareDir),
+		}),
 		),
 	))
 	if dbErr == nil && authMW != nil {
