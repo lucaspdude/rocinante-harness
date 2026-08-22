@@ -49,7 +49,7 @@ type ModelEntry struct {
 // ProviderEntry is one provider block in models.yml.
 type ProviderEntry struct {
 	ID      string
-	API     string // "anthropic-messages" | "openai-chat" | etc.
+	API     string // "anthropic-messages" | "openai-completions" | etc.
 	APIKey  string // env var name, e.g. ANTHROPIC_API_KEY
 	BaseURL string
 	Models  []ModelEntry
@@ -87,7 +87,7 @@ var DefaultProviderMap = map[string]ProviderEntry{
 	},
 	"openai": {
 		ID:      "openai",
-		API:     "openai-chat",
+		API:     "openai-completions",
 		APIKey:  "OPENAI_API_KEY",
 		BaseURL: "https://api.openai.com/v1",
 		Models:  DefaultModelMap["openai"],
@@ -101,14 +101,14 @@ var DefaultProviderMap = map[string]ProviderEntry{
 	},
 	"openrouter": {
 		ID:      "openrouter",
-		API:     "openai-chat",
+		API:     "openai-completions",
 		APIKey:  "OPENROUTER_API_KEY",
 		BaseURL: "https://openrouter.ai/api/v1",
 		Models:  DefaultModelMap["openrouter"],
 	},
 	"minimax": {
 		ID:      "minimax",
-		API:     "openai-chat",
+		API:     "openai-completions",
 		APIKey:  "MINIMAX_API_KEY",
 		BaseURL: "https://api.minimaxi.chat/v1",
 		Models:  DefaultModelMap["minimax"],

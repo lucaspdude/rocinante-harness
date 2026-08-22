@@ -36,7 +36,7 @@ func TestModelsConfig_Render(t *testing.T) {
 			},
 			wantSubs: []string{
 				"api: anthropic-messages",
-				"api: openai-chat",
+				"api: openai-completions",
 				"apiKey: ${MINIMAX_API_KEY}",
 				"baseUrl: https://api.minimaxi.chat/v1",
 				"id: claude-sonnet-4",
@@ -54,7 +54,7 @@ func TestModelsConfig_Render(t *testing.T) {
 				"openrouter": "sk-or-test",
 			},
 			wantSubs: []string{
-				"api: openai-chat",
+				"api: openai-completions",
 				"apiKey: ${OPENROUTER_API_KEY}",
 				"baseUrl: https://openrouter.ai/api/v1",
 			},
