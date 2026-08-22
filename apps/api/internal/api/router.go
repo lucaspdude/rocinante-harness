@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/auth"
@@ -11,6 +12,7 @@ import (
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/health"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/keystore"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/sessions"
 )
 
 // RouterDeps groups the runtime dependencies needed by the api.
@@ -36,7 +38,13 @@ type RouterDeps struct {
 	Files         *files.FilesHandler
 	Git           *files.GitHandler
 	CliTools      *CliToolsHandler
+	// Phase-6 PR-2: JSONL-backed session message persistence.
+	// SessionsStore holds the *sessions.Store when persistence is
+	// enabled; nil disables both recording (PromptHandler /
+	// StreamSessionHandler) and the GET /messages replay endpoint.
+	SessionsStore *sessions.Store
 }
+
 
 
 // WrapHandler chains a middleware around an http.HandlerFunc,
@@ -164,10 +172,15 @@ if deps.AuthState != nil {
 		registryForSession = deps.Projects.Registry
 	}
 	r.Route("/api/v1/sessions", func(r chi.Router) {
+		var rec sessionRecorder
+		if deps.SessionsStore != nil {
+			rec = deps.SessionsStore
+		}
 		r.Post("/", CreateSessionHandler(deps.Manager, registryForSession))
 		r.Get("/", SessionsListHandler(deps.Manager, titles))
-		r.Get("/{id}/events", StreamSessionHandler(deps.Manager))
-		r.Post("/{id}/prompt", WrapHandler(idem, PromptHandler(deps.Manager)))
+		r.Get("/{id}/events", StreamSessionHandlerWithRecorder(deps.Manager, rec))
+		r.Get("/{id}/messages", sessions.ReplayHandler(deps.SessionsStore))
+		r.Post("/{id}/prompt", WrapHandler(idem, PromptHandlerWithRecorder(deps.Manager, rec)))
 		r.Post("/{id}/abort", WrapHandler(idem, AbortHandler(deps.Manager)))
 		r.Post("/{id}/fork", WrapHandler(idem, ForkHandler(deps.Manager)))
 		r.Post("/{id}/title", SessionTitleHandler(deps.Manager, titles))

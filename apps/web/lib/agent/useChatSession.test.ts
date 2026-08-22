@@ -14,11 +14,12 @@ import { chatReducer, MAX_FRAMES, type ChatState, type TrajectoryFrame } from ".
 //   4. the rolling window cap prevents unbounded growth.
 
 const initial: ChatState = {
-  status: "idle",
-  messages: [],
-  pendingPrompt: null,
-  error: null,
-  frames: [],
+	status: "idle",
+	messages: [],
+	pendingPrompt: null,
+	error: null,
+	frames: [],
+	hydrated: true,
 };
 
 function getSeq(frame: TrajectoryFrame): number {
@@ -143,5 +144,75 @@ describe("chatReducer — frame capture (PR-06 trajectory)", () => {
     const next = chatReducer(seeded, { type: "RESET", messages: [] });
     expect(next.model).toBe("claude-sonnet-4");
     expect(next.frames).toHaveLength(0);
+  });
+});
+
+// PR-2 (phase 6) dedup tests: when the api replays a frame's seq
+// that arrives again over the live SSE stream, the reducer must
+// drop the duplicate so the chat doesn't show the same text twice.
+describe("chatReducer — PR-2 replay dedup", () => {
+  it("skips a FRAME whose seq already exists in state.frames", () => {
+    const seeded: ChatState = {
+      ...initial,
+      frames: [
+        { at: "2026-08-20T00:00:00.000Z", frame: { type: "delta", seq: 7, text: "x" } },
+      ],
+    };
+    const next = chatReducer(seeded, {
+      type: "FRAME",
+      frame: { type: "delta", seq: 7, text: "x" },
+    });
+    expect(next).toBe(seeded); // reducer returned same reference → dropped
+    expect(next.frames).toHaveLength(1);
+    expect(next.messages).toHaveLength(0);
+  });
+
+  it("keeps a FRAME with a new seq even if older seqs are present", () => {
+    const seeded: ChatState = {
+      ...initial,
+      frames: [
+        { at: "2026-08-20T00:00:00.000Z", frame: { type: "delta", seq: 7, text: "x" } },
+      ],
+    };
+    const next = chatReducer(seeded, {
+      type: "FRAME",
+      frame: { type: "delta", seq: 8, text: "y" },
+    });
+    expect(next.frames).toHaveLength(2);
+    expect(next.messages).toHaveLength(1);
+    expect(next.messages[0]?.content).toBe("y");
+  });
+
+  it("passes through a FRAME without a seq (no dedup key)", () => {
+    const seeded: ChatState = {
+      ...initial,
+      frames: [
+        { at: "2026-08-20T00:00:00.000Z", frame: { type: "tool_call", name: "bash" } },
+      ],
+    };
+    const next = chatReducer(seeded, {
+      type: "FRAME",
+      frame: { type: "tool_call", name: "bash" },
+    });
+    // No seq → no dedup → frame appended twice.
+    expect(next.frames).toHaveLength(2);
+  });
+
+  it("REPLAY seeds messages and frames atomically and flips hydrated", () => {
+    const next = chatReducer(initial, {
+      type: "REPLAY",
+      seed: {
+        messages: [
+          { id: "m1", role: "user", content: "hi", createdAt: "2026-08-22T10:00:00Z" },
+        ],
+        frames: [
+          { at: "2026-08-20T00:00:00.000Z", frame: { type: "delta", seq: 1, text: "hello" } },
+        ],
+      },
+    });
+    expect(next.messages).toHaveLength(1);
+    expect(next.messages[0]?.content).toBe("hi");
+    expect(next.frames).toHaveLength(1);
+    expect(next.hydrated).toBe(true);
   });
 });

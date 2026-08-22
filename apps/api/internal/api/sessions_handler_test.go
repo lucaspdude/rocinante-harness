@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/lucaspdude/rocinante-harness/apps/api/internal/api/middleware"
 	"github.com/lucaspdude/rocinante-harness/apps/api/internal/omp"
+	sessionspkg "github.com/lucaspdude/rocinante-harness/apps/api/internal/sessions"
 )
 
 func writeScript(t *testing.T, body string) string {
@@ -216,6 +218,66 @@ func doPostServer(t *testing.T, srv *httptest.Server, body string) map[string]an
 		t.Fatalf("decode: %v", err)
 	}
 	return out
+}
+
+// TestPrompt_PersistsUserMessage verifies that wiring a JSONL store
+// into PromptHandlerWithRecorder writes the user message into the
+// log on prompt POST. The store is exercised end-to-end via the
+// replay endpoint.
+func TestPrompt_PersistsUserMessage(t *testing.T) {
+	body := strings.Join([]string{
+		`echo '{"protocol_version":2,"omp_version":"omp/17.3.4"}'`,
+		`echo '{"type":"agent_start","seq":1}'`,
+		`sleep 5`,
+	}, "\n")
+	bin := writeScript(t, body)
+	manager := omp.NewManagerWithFactory(scriptFactory{bin: bin})
+	shareDir := t.TempDir()
+	store := sessionspkg.New(shareDir)
+	mux := chi.NewRouter()
+	mux.Post("/api/v1/sessions", CreateSessionHandler(manager, nil))
+	mux.Post("/api/v1/sessions/{id}/prompt", WrapHandler(middleware.IdempotencyMiddleware(nil), PromptHandlerWithRecorder(manager, store)))
+	mux.Get("/api/v1/sessions/{id}/messages", sessionspkg.ReplayHandler(store))
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	created := doPostServer(t, srv, `{"omp_cwd":"/tmp"}`)
+	id, _ := created["id"].(string)
+
+	// POST a prompt.
+	promptBody := `{"text":"hello world"}`
+	resp, err := http.Post(srv.URL+"/api/v1/sessions/"+id+"/prompt", "application/json", strings.NewReader(promptBody))
+	if err != nil {
+		t.Fatalf("prompt POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		buf, _ := io.ReadAll(resp.Body)
+		t.Fatalf("prompt status = %d, body = %s", resp.StatusCode, buf)
+	}
+
+	// Replay should contain exactly one user message.
+	entries, err := store.Replay(id, 0)
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("replay entries = %d, want 1", len(entries))
+	}
+	if entries[0].Kind != "message" {
+		t.Errorf("entry[0].kind = %q, want message", entries[0].Kind)
+	}
+	var msg map[string]any
+	if err := json.Unmarshal(entries[0].Message, &msg); err != nil {
+		t.Fatalf("unmarshal message: %v", err)
+	}
+	if msg["content"] != "hello world" {
+		t.Errorf("content = %v, want hello world", msg["content"])
+	}
+	if msg["role"] != "user" {
+		t.Errorf("role = %v, want user", msg["role"])
+	}
 }
 
 func firstChars(s string, n int) string {

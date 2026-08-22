@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { api, tokenProvider } from "../api/client";
 import { consumeSse } from "../sse/client";
+import { fetchReplay, type ReplaySeed } from "./session-replay";
 
 export interface ChatMessage {
   id: string;
@@ -37,6 +38,12 @@ export interface ChatState {
   // MAX_FRAMES so a long run doesn't leak memory; older frames are
   // dropped from the head when the cap is hit.
   frames: TrajectoryFrame[];
+  // hydrated is true once the initial replay request resolved
+  // (or failed). useChatSession uses this to gate starting the
+  // SSE stream — we never start streaming before replay returns,
+  // otherwise live frames could arrive before their replayed
+  // counterparts and confuse the dedup logic.
+  hydrated: boolean;
 }
 
 // Exported for tests; not part of the public API.
@@ -44,12 +51,14 @@ export const MAX_FRAMES = 500;
 
 type Action =
   | { type: "RESET"; messages: ChatMessage[] }
+  | { type: "REPLAY"; seed: ReplaySeed }
   | { type: "USER_MESSAGE"; content: string }
   | { type: "FRAME"; frame: Record<string, unknown> }
   | { type: "AGENT_END" }
   | { type: "ABORT_OK" }
   | { type: "SET_ERROR"; error: string }
-  | { type: "SET_MODEL"; model: string };
+  | { type: "SET_MODEL"; model: string }
+  | { type: "HYDRATED"; hydrated: boolean };
 
 // Exported for tests; not part of the public API.
 export function chatReducer(state: ChatState, action: Action): ChatState {
@@ -62,7 +71,17 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
         error: null,
         model: state.model,
         frames: [],
+        hydrated: state.hydrated,
       };
+    case "REPLAY":
+      return {
+        ...state,
+        messages: action.seed.messages,
+        frames: action.seed.frames,
+        hydrated: true,
+      };
+    case "HYDRATED":
+      return { ...state, hydrated: action.hydrated };
     case "USER_MESSAGE": {
       const msg: ChatMessage = {
         id: crypto.randomUUID(),
@@ -73,6 +92,15 @@ export function chatReducer(state: ChatState, action: Action): ChatState {
       return { ...state, status: "streaming", messages: [...state.messages, msg] };
     }
     case "FRAME": {
+      // PR-2 dedup: if a frame with the same numeric `seq` already
+      // exists in state.frames (because the api replayed it before
+      // we started the live stream), drop the duplicate. Frames
+      // without a seq are passed through — they're unknown shape
+      // and the dedup key is meaningless for them.
+      const seq = (action.frame.seq as number | undefined) ?? null;
+      if (seq !== null && state.frames.some((f) => (f.frame.seq as number | undefined) === seq)) {
+        return state;
+      }
       const entry: TrajectoryFrame = {
         at: new Date().toISOString(),
         frame: action.frame,
@@ -131,11 +159,13 @@ const initialState: ChatState = {
   pendingPrompt: null,
   error: null,
   frames: [],
+  hydrated: false,
 };
 
 export function useChatSession(sessionId: string | null) {
   const [state, dispatch] = useReducer(chatReducer, initialState);
   const ctrlRef = useRef<AbortController | null>(null);
+  const replayCtrlRef = useRef<AbortController | null>(null);
 
   const startStream = useCallback(async () => {
     if (!sessionId) return;
@@ -183,10 +213,49 @@ export function useChatSession(sessionId: string | null) {
     });
   }, [sessionId]);
 
+  // PR-2 replay-then-stream lifecycle: on mount or sessionId
+  // change, fetch the persisted JSONL log and seed the reducer
+  // BEFORE opening the SSE stream. This way the dedup logic in
+  // the FRAME reducer can identify replayed-vs-live frames by
+  // their `seq` and the user sees their history from the first
+  // paint. The replay aborts when sessionId changes or the hook
+  // unmounts.
   useEffect(() => {
+    if (!sessionId) return;
+    const ctrl = new AbortController();
+    replayCtrlRef.current?.abort();
+    replayCtrlRef.current = ctrl;
+    let cancelled = false;
+    (async () => {
+      const { seed, error } = await fetchReplay(sessionId, { signal: ctrl.signal });
+      if (cancelled) return;
+      if (error) {
+        // Non-fatal: surface the error but still mark hydrated so
+        // the stream can start; the user just sees an empty chat
+        // with the error in the banner.
+        dispatch({ type: "SET_ERROR", error });
+      }
+      dispatch({ type: "REPLAY", seed });
+    })().catch((err) => {
+      if (!cancelled) {
+        dispatch({ type: "SET_ERROR", error: String(err) });
+        dispatch({ type: "HYDRATED", hydrated: true });
+      }
+    });
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
+  }, [sessionId]);
+
+  // Start the SSE stream only AFTER replay resolves. The hydrated
+  // flag gates this so we never receive live frames before their
+  // replayed counterparts land in the reducer.
+  useEffect(() => {
+    if (!sessionId || !state.hydrated) return;
     startStream();
     return () => ctrlRef.current?.abort();
-  }, [startStream]);
+  }, [sessionId, state.hydrated, startStream]);
 
   const sendPrompt = useCallback(
     async (text: string, model?: string) => {
