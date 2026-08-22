@@ -308,7 +308,7 @@ function DirectoryPickerInner({
       onKeyDown={handleDialogKeyDown}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
     >
-      <div className="rh-card w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="rh-card w-full max-w-2xl min-h-[480px] max-h-[80vh] flex flex-col overflow-hidden">
         <header className="flex items-center justify-between mb-3">
           <h2
             id="directory-picker-title"
@@ -512,9 +512,32 @@ function DirectoryPickerInner({
               })}
             </ul>
           ) : (
-            <p className="p-3 text-sm text-[var(--color-fg-muted)]">
-              {t("projects.folderPicker.empty")}
-            </p>
+            <div className="p-3 text-sm text-[var(--color-fg-muted)">
+              <p className="mb-2">{t("projects.folderPicker.empty")}</p>
+              {loadError && (
+                <p className="text-xs mb-3 text-[var(--color-danger)]">{loadError}</p>
+              )}
+              <p className="text-xs uppercase tracking-wide mb-1.5 text-[var(--color-fg-muted)]">
+                {t("projects.folderPicker.commonRoots")}
+              </p>
+              <ul className="space-y-1">
+                {(["~", "/tmp", "/workspace"] as const).map((p) => (
+                  <li key={p}>
+                    <button
+                      type="button"
+                      onClick={() => void navigateTo(p)}
+                      disabled={loading}
+                      title={p}
+                      className="w-full text-left px-2 py-1.5 rounded text-sm font-mono flex items-center gap-2 hover:bg-[var(--color-bg-elevated)] disabled:opacity-50"
+                    >
+                      <Folder size={14} aria-hidden="true" className="flex-shrink-0" />
+                      <span className="truncate flex-1">{p}</span>
+                      <ChevronRight size={14} aria-hidden="true" className="flex-shrink-0 opacity-60" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
 

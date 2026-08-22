@@ -438,5 +438,6 @@
   "sessionHeader.trajectoryFrameAt": "received {at}",
   "sessionHeader.trajectoryFrameAtCount": "{count} frames",
   "settings.close": "Close",
-  "sshServers.title": "SSH Servers"
+  "sshServers.title": "SSH Servers",
+  "projects.folderPicker.commonRoots": "Common roots"
 }
