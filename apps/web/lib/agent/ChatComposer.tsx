@@ -32,12 +32,14 @@ import { ModelPicker } from "../models/ModelPicker";
 
 export type AccessMode = "write" | "read";
 
-const MIN_ROWS = 1;
-const MAX_ROWS = 6;
 // Single-line height + vertical padding of the textarea (~22 px line
 // height * rows + 0). Computed once at layout so the resize logic does
 // not re-measure font metrics on every keystroke.
 const LINE_HEIGHT_PX = 22;
+// Cap the auto-resize at ~6 lines so a multi-paragraph paste does
+// not push the card to the bottom of the viewport.
+const MAX_HEIGHT_PX = LINE_HEIGHT_PX * 6 + 16; // 6 lines + padding
+const MIN_HEIGHT_PX = LINE_HEIGHT_PX + 16; // 1 line + padding
 
 export interface ChatComposerProps {
   busy: boolean;
@@ -68,7 +70,6 @@ export function ChatComposer({
   const [text, setText] = useState("");
   const [modelId, setModelId] = useState(defaultModelId);
   const [accessMode, setAccessMode] = useState<AccessMode>(defaultAccessMode);
-  const [rows, setRows] = useState(MIN_ROWS);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const canSend = !disabled && text.trim().length > 0 && !busy;
@@ -86,9 +87,12 @@ export function ChatComposer({
   useIsoLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    const lineCount = Math.ceil(el.scrollHeight / LINE_HEIGHT_PX);
-    const clamped = Math.min(Math.max(lineCount, MIN_ROWS), MAX_ROWS);
-    if (clamped !== rows) setRows(clamped);
+    // Cap the textarea height to MAX_HEIGHT_PX so a long paste does
+    // not grow the card to the bottom of the viewport; let the
+    // user scroll inside the textarea for longer content.
+    el.style.height = "auto";
+    const next = Math.min(Math.max(el.scrollHeight, MIN_HEIGHT_PX), MAX_HEIGHT_PX);
+    el.style.height = `${next}px`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
 
@@ -143,7 +147,7 @@ export function ChatComposer({
         onChange={onTextareaChange}
         onKeyDown={onTextareaKeyDown}
         disabled={disabled}
-        rows={rows}
+        rows={1}
         placeholder={resolvedPlaceholder}
         aria-label={resolvedPlaceholder}
         title={t("composer.sendHint")}
