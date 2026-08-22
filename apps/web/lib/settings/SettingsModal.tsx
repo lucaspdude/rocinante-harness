@@ -198,7 +198,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     >
       <div
         ref={cardRef}
-        className="rh-card w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
+        className="rh-card w-full max-w-3xl min-h-[480px] max-h-[80vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3 shrink-0">
