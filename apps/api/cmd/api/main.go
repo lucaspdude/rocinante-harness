@@ -89,6 +89,13 @@ func main() {
 	loader, resolvedBin := resolveOmp(envconfig.OmpBin())
 	keystoreStore := keystore.New(effectiveShareDir)
 	manager := omp.NewManagerWithEnv(resolvedBin, keystoreStore)
+	// Phase-6 PR-1: write ~/.omp/agent/models.yml from the keystore on
+	// every key add/remove and kill in-flight OMP sessions so the
+	// next request picks up the new provider. Default target dir is
+	// $OMP_AGENT_DIR or $HOME/.omp/agent — the same path the OMP
+	// probe uses.
+	modelsWriter := omp.NewModelsConfigWriter(os.Getenv("OMP_AGENT_DIR"))
+	_ = modelsWriter.SyncIfConfigured(keystoreStore) // best-effort on boot
 	idem := middleware.NewIdempotencyCache(2048)
 
 	dbPathResolved := filepath.Join(effectiveShareDir, "roc-harness.db")
@@ -185,6 +192,8 @@ func main() {
 				AuthMW:       authMW,
 				ShareDir:     effectiveShareDir,
 				ProviderKeys: keystoreStore,
+				OMP:          manager,
+				Models:       modelsWriter,
 				LoginHandlers: &api.LoginHandlers{
 					Providers:  loginProvidersCache,
 					Jobs:       api.NewLoginJobs(),
