@@ -2,6 +2,7 @@ import { I18nProvider } from "../../lib/i18n";
 import type { Locale } from "../../lib/i18n/schema";
 import { ToastProvider, ToastViewport } from "../../lib/toast";
 import { StatusMount } from "../../lib/status/StatusMount";
+import { AuthExpiredListener } from "../../lib/auth/AuthExpiredListener";
 
 export default async function LocaleLayout({
   children,
@@ -17,6 +18,10 @@ export default async function LocaleLayout({
         {children}
         <ToastViewport />
         <StatusMount />
+        {/* Phase 7 — item 03: client child that listens for the
+            `rh:auth:expired` window event and clears the token
+            + redirects to /<locale>/login?next=…. */}
+        <AuthExpiredListener />
       </ToastProvider>
     </I18nProvider>
   );

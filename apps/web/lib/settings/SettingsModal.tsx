@@ -71,9 +71,15 @@ interface Device {
 
 interface SettingsModalProps {
   onClose: () => void;
+  // Phase 7 — item 03: when set, the modal renders only the
+  // "Sign in required" placeholder instead of the section
+  // content. Defense-in-depth against DOM-hack reach; the
+  // settings page route already gates on auth, this guards
+  // any other caller.
+  unauthed?: boolean;
 }
 
-export function SettingsModal({ onClose }: SettingsModalProps) {
+export function SettingsModal({ onClose, unauthed }: SettingsModalProps) {
   const t = useT();
   const i18n = useI18n();
   const router = useRouter();
@@ -81,7 +87,6 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const searchParams = useSearchParams();
   const cardRef = useRef<HTMLDivElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
-
   // Resolve the initial section: ?section= > localStorage > default.
   const initialSection: SettingsSectionId = (() => {
     const fromQuery = searchParams.get("section");
@@ -184,7 +189,57 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     { id: "developer", label: t("settings.developer"), glyph: "D" },
   ];
 
-  return (
+  // Phase 7 — item 03: defense-in-depth. The settings page
+  // route already gates on auth, so this branch only fires
+  // for callers that explicitly pass unauthed=true. Render
+  // a minimal "Sign in required" card instead of the
+  // 4-section modal.
+  if (unauthed) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rh-settings-unauthed-title"
+        data-testid="rh-settings-modal-unauthed"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        <div
+          className="rh-card w-full max-w-md p-6 flex flex-col gap-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h2
+            id="rh-settings-unauthed-title"
+            className="text-base font-semibold"
+          >
+            {t("settings.unauthed.title")}
+          </h2>
+          <p className="text-sm text-[var(--color-fg-muted)]">
+            {t("settings.unauthed.body")}
+          </p>
+          <div className="flex gap-2">
+            <a
+              href={lp("/login")}
+              className="rh-button-primary inline-block"
+            >
+              {t("login.submit")}
+            </a>
+            <button
+              type="button"
+              onClick={() => router.push(lp("/"))}
+              className="rh-button-secondary"
+            >
+              {t("settings.unauthed.back")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+   return (
     <div
       role="dialog"
       aria-modal="true"
