@@ -145,7 +145,12 @@ func Spawn(ctx context.Context, opts Options) (*Session, error) {
 	}
 
 	ompVersion := handshake.OmpVersion
-	if ompVersion == "" && handshake.ProtocolVersion == 1 {
+	// Phase 7 — item 02: fire the omp --version fallback
+	// whenever the handshake left ompVersion empty, regardless
+	// of protocol version. The previous v1-only guard missed
+	// v2 handshakes that omit the field (the harness tests
+	// already cover both paths).
+	if ompVersion == "" {
 		fallback, ferr := fallbackOmpVersion(ctx, opts.OpBin)
 		if ferr == nil {
 			ompVersion = fallback

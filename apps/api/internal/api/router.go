@@ -60,6 +60,14 @@ func NewRouter(deps RouterDeps) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/api/v1/healthz", health.Handler)
 	r.Get("/api/v1/meta", deps.metaHandler())
+	// Phase 7 — item 02: POST /api/v1/meta/refresh triggers a
+	// synchronous omp re-probe via the DynamicLoader. Wire
+	// shape matches GET /api/v1/meta. Mounted alongside
+	// (not inside) the auth-protected group — the web's
+	// useStatus recheck fires it from the public StatusPill.
+	if dl, ok := deps.MetaLoader.(*omp.DynamicLoader); ok {
+		r.Post("/api/v1/meta/refresh", deps.metaRefreshHandler(dl))
+	}
 	r.Get("/api/v1/onboarding/status", OnboardingStatus(deps.ShareDir, deps.APIVersion))
 	if deps.ShareDir != "" {
 		r.Post("/api/v1/onboarding/init", OnboardingInit(deps.ShareDir))
@@ -212,6 +220,26 @@ func (d RouterDeps) metaHandler() http.HandlerFunc {
 		}
 	}
 	return omp.NewMetaHandler(d.MetaLoader, d.APIVersion, rows, resolveDefaultModel(d.ModelsCatalog))
+}
+
+// metaRefreshHandler returns the POST /api/v1/meta/refresh
+// http.Handler. Mirrors metaHandler but feeds a *DynamicLoader
+// through to NewMetaRefreshHandler so the handler can call
+// Recheck before responding.
+func (d RouterDeps) metaRefreshHandler(loader *omp.DynamicLoader) http.HandlerFunc {
+	var rows []omp.MetaProviderInfo
+	if d.LoginHandlers != nil && d.LoginHandlers.Providers != nil {
+		for _, p := range d.LoginHandlers.Providers.Snapshot() {
+			rows = append(rows, omp.MetaProviderInfo{
+				ID:            p.ID,
+				Name:          p.Name,
+				Available:     p.Available,
+				Authenticated: p.Authenticated,
+				HelpURL:       p.HelpURL,
+			})
+		}
+	}
+	return omp.NewMetaRefreshHandler(loader, d.APIVersion, rows, resolveDefaultModel(d.ModelsCatalog))
 }
 
 // resolveDefaultModel picks the model id advertised in /api/v1/meta.
