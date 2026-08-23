@@ -115,7 +115,16 @@ export function PopoverMenu({
     setPos(
       positionMenu({
         trigger: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
-        menu: { width: Math.max(box.width, minWidth), height: box.height },
+        menu: {
+          // Phase 8 — item 03: cap the menu width to the
+          // viewport minus 16 px so a long row cannot push
+          // the picker past the viewport edge.
+          width: Math.min(
+            Math.max(box.width, minWidth),
+            window.innerWidth - 16
+          ),
+          height: box.height,
+        },
         side,
         align,
         viewport: { width: window.innerWidth, height: window.innerHeight },
@@ -240,8 +249,16 @@ export function PopoverMenu({
                 top: pos?.top ?? 0,
                 left: pos?.left ?? 0,
                 minWidth,
-                // Hidden until measured so the first paint never
-                // flashes at the top-left corner.
+                // Phase 8 — item 03: match the measure-time
+                // cap with an inline max-width so the rendered
+                // popup never exceeds viewport - 16 px.
+                maxWidth: `calc(100vw - 16px)`,
+                // Long model lists get a vertical scrollbar
+                // instead of pushing the popup taller than the
+                // viewport.
+                maxHeight: `calc(100vh - 16px)`,
+                overflowY: "auto",
+                overflowX: "hidden",
                 visibility: pos ? "visible" : "hidden",
                 zIndex: 60,
                 borderRadius: 12,

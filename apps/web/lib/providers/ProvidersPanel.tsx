@@ -16,6 +16,12 @@
 // PR-01 reshape: providers are now a flat array of ProviderInfo
 // (id + name + auth + authenticated + help_url). The previous 5-
 // provider hardcoded list is gone.
+//
+// Phase 8 — item 02: success toasts on save/clear and an
+// optimistic-state override that flips the row to configured/not-set
+// immediately. Without this, the user has to wait for the next
+// 5-second /meta poll (which now returns fresh data thanks to item
+// 01's LoginProvidersCache.Invalidate) before seeing the change.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
@@ -29,8 +35,15 @@ export function ProvidersPanel({
 }) {
   const t = useT();
   const toast = useToast();
-  const { providers, error, reload, saveKey, deleteKey, saving } =
-    useProviders(5000);
+  const {
+    providers,
+    error,
+    reload,
+    saveKey,
+    deleteKey,
+    saving,
+    isOptimisticallyAuthenticated,
+  } = useProviders(5000);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
@@ -77,13 +90,14 @@ export function ProvidersPanel({
 
   async function save(p: ProviderInfo) {
     if (!draft.trim()) {
-      toast.error("empty");
+      toast.error(t("providers.error.empty"));
       return;
     }
     try {
       await saveKey(p.id, draft.trim());
       setEditing(null);
       setDraft("");
+      toast.success(t("providers.saved"));
       reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -93,6 +107,7 @@ export function ProvidersPanel({
   async function clear(p: ProviderInfo) {
     try {
       await deleteKey(p.id);
+      toast.success(t("providers.cleared"));
       reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -132,6 +147,7 @@ export function ProvidersPanel({
                 onSave={() => save(p)}
                 onClear={() => clear(p)}
                 saving={saving === p.id}
+                isOptimistic={isOptimisticallyAuthenticated(p.id)}
               />
             ))}
           </ul>
@@ -155,6 +171,7 @@ function ProviderRow({
   onSave,
   onClear,
   saving,
+  isOptimistic,
 }: {
   p: ProviderInfo;
   editing: boolean;
@@ -165,15 +182,24 @@ function ProviderRow({
   onSave: () => void;
   onClear: () => void;
   saving: boolean;
+  // Phase 8 — item 02: when true, the user just saved/cleared
+  // a key in this session. Renders the row as configured/not-set
+  // immediately, before the api confirms via the next /meta poll.
+  isOptimistic: boolean;
 }) {
   const t = useT();
+  // Phase 8 — item 02: optimistic flip wins over the stale
+  // server value when the user just saved/cleared in this
+  // session. The api confirmation (next /meta poll) clears
+  // the optimistic override and the server value takes over.
+  const isAuthed = p.authenticated || isOptimistic;
   return (
     <li className="flex flex-col gap-2 py-2 border-b border-[var(--color-border)] last:border-0">
       <div className="flex items-center gap-3">
         <span
           aria-hidden="true"
           className={
-            p.authenticated
+            isAuthed
               ? "inline-block w-2.5 h-2.5 rounded-full bg-green-500"
               : "inline-block w-2.5 h-2.5 rounded-full bg-zinc-500/40"
           }
@@ -205,12 +231,12 @@ function ProviderRow({
         </div>
         <span
           className={
-            p.authenticated
+            isAuthed
               ? "text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-600 dark:text-green-400"
               : "text-xs px-2 py-0.5 rounded-full bg-zinc-500/10 text-[var(--color-fg-muted)]"
           }
         >
-          {p.authenticated ? t("providers.configured") : t("providers.missing")}
+          {isAuthed ? t("providers.configured") : t("providers.missing")}
         </span>
       </div>
 
@@ -246,7 +272,7 @@ function ProviderRow({
         </div>
       ) : (
         <div className="flex gap-2 pl-6">
-          {p.authenticated ? (
+          {isAuthed ? (
             <button
               type="button"
               onClick={onClear}

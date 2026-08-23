@@ -38,11 +38,13 @@ type RouterDeps struct {
 	Files         *files.FilesHandler
 	Git           *files.GitHandler
 	CliTools      *CliToolsHandler
-	// Phase-6 PR-2: JSONL-backed session message persistence.
-	// SessionsStore holds the *sessions.Store when persistence is
-	// enabled; nil disables both recording (PromptHandler /
-	// StreamSessionHandler) and the GET /messages replay endpoint.
-	SessionsStore *sessions.Store
+	// Phase 8 — item 01: LoginProvidersCache, when non-nil, is
+	// invalidated by ProvidersHandler after a key save/delete so
+	// the next /meta or /login/providers fetch rebuilds the
+	// provider list from omp's get_login_providers (which now
+	// sees the freshly-written models.yml / provider keys).
+	LoginProvidersCache LoginProvidersInvalidator
+	SessionsStore      *sessions.Store
 }
 
 
@@ -77,6 +79,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 			Store:  deps.ProviderKeys,
 			OMP:    deps.OMP,
 			Models: deps.Models,
+			Cache:  deps.LoginProvidersCache,
 		}
 		r.Route("/api/v1/providers", func(r chi.Router) {
 			r.Post("/{name}/key", ph.ServeHTTP)

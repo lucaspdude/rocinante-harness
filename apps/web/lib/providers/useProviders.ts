@@ -53,7 +53,6 @@ interface LoginProvidersResponse {
 export function envVarOf(p: ProviderInfo): string | undefined {
   return p.env_vars?.[0];
 }
-
 export function useProviders(intervalMs = 5000): {
   providers: ProviderInfo[];
   meta: Omit<MetaResponse, "providers"> | null;
@@ -62,6 +61,12 @@ export function useProviders(intervalMs = 5000): {
   saveKey: (name: string, key: string) => Promise<void>;
   deleteKey: (name: string) => Promise<void>;
   saving: string | null;
+  /** Phase 8 — item 02: providers the user has explicitly
+   *  configured in this page-mount session. The hook
+   *  optimistically marks them as authenticated on save/delete
+   *  so the UI flips immediately. The optimistic state is
+   *  cleared once the api confirms via /meta. */
+  isOptimisticallyAuthenticated: (id: string) => boolean;
 } {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [meta, setMeta] = useState<Omit<MetaResponse, "providers"> | null>(
@@ -70,6 +75,10 @@ export function useProviders(intervalMs = 5000): {
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [saving, setSaving] = useState<string | null>(null);
+  // Phase 8 — item 02: optimistic override set.
+  const [optimisticAuth, setOptimisticAuth] = useState<Map<string, boolean>>(
+    new Map()
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -77,12 +86,29 @@ export function useProviders(intervalMs = 5000): {
       try {
         const res = await api.get<MetaResponse>("/api/v1/meta");
         if (cancelled) return;
-        setProviders(res.providers ?? []);
+        const incoming = res.providers ?? [];
+        setProviders(incoming);
         setMeta({
           api_version: res.api_version,
           omp_version: res.omp_version,
           protocol_version: res.protocol_version,
           omp_bin: res.omp_bin,
+        });
+        // Phase 8 — item 02: the api just confirmed the real
+        // auth state. Drop any optimistic overrides that now
+        // match what the api says (so the panel can stop
+        // showing the optimistic badge once the api confirms).
+        setOptimisticAuth((prev) => {
+          let changed = false;
+          const next = new Map(prev);
+          for (const [id, optimistic] of prev) {
+            const real = incoming.find((p) => p.id === id);
+            if (real && real.authenticated === optimistic) {
+              next.delete(id);
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
         });
         setError(null);
       } catch (e) {
@@ -103,11 +129,27 @@ export function useProviders(intervalMs = 5000): {
 
   const saveKey = useCallback(async (name: string, key: string) => {
     setSaving(name);
+    // Phase 8 — item 02: optimistic flip BEFORE the request
+    // so the UI feels instant. The api confirmation in the
+    // poll above will clear the override once consistent.
+    setOptimisticAuth((prev) => {
+      const next = new Map(prev);
+      next.set(name, true);
+      return next;
+    });
     try {
       await api.post(`/api/v1/providers/${name}/key`, { json: { key } });
       setProviders((prev) =>
         prev.map((p) => (p.id === name ? { ...p, authenticated: true } : p))
       );
+    } catch {
+      // Roll back the optimistic flip on error.
+      setOptimisticAuth((prev) => {
+        const next = new Map(prev);
+        next.delete(name);
+        return next;
+      });
+      throw new Error("save failed");
     } finally {
       setSaving(null);
     }
@@ -115,17 +157,43 @@ export function useProviders(intervalMs = 5000): {
 
   const deleteKey = useCallback(async (name: string) => {
     setSaving(name);
+    setOptimisticAuth((prev) => {
+      const next = new Map(prev);
+      next.set(name, false);
+      return next;
+    });
     try {
       await api.delete(`/api/v1/providers/${name}/key`);
       setProviders((prev) =>
         prev.map((p) => (p.id === name ? { ...p, authenticated: false } : p))
       );
+    } catch {
+      setOptimisticAuth((prev) => {
+        const next = new Map(prev);
+        next.delete(name);
+        return next;
+      });
+      throw new Error("delete failed");
     } finally {
       setSaving(null);
     }
   }, []);
 
-  return { providers, meta, error, reload, saveKey, deleteKey, saving };
+  const isOptimisticallyAuthenticated = useCallback(
+    (id: string) => optimisticAuth.get(id) === true,
+    [optimisticAuth]
+  );
+
+  return {
+    providers,
+    meta,
+    error,
+    reload,
+    saveKey,
+    deleteKey,
+    saving,
+    isOptimisticallyAuthenticated,
+  };
 }
 
 // useLoginProviders polls the dedicated login providers endpoint

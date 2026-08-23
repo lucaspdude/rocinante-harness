@@ -28,6 +28,19 @@ type ProvidersHandler struct {
 	Store   *keystore.Store
 	OMP     OMPKiller
 	Models  *omp.ModelsConfigWriter
+	// Cache, when non-nil, is invalidated after every keystore
+	// write so the next /meta or /login/providers request
+	// returns fresh data instead of a stale 5-second-TTL
+	// snapshot. The cache itself is defined in
+	// login_providers.go (LoginProvidersCache.Invalidate).
+	Cache   LoginProvidersInvalidator
+}
+
+// LoginProvidersInvalidator is the minimum surface
+// ProvidersHandler needs from the LoginProvidersCache. The
+// concrete *LoginProvidersCache type satisfies this.
+type LoginProvidersInvalidator interface {
+	Invalidate()
 }
 
 // OMPKiller is the minimum surface we need from the omp.Manager:
@@ -114,6 +127,15 @@ func (h *ProvidersHandler) setKey(w http.ResponseWriter, r *http.Request, p keys
 	if h.OMP != nil {
 		h.OMP.CloseAll()
 	}
+	// Phase 8 — item 01: invalidate the LoginProvidersCache so
+	// the next /meta or /login/providers request rebuilds the
+	// provider list from omp's get_login_providers (which now
+	// sees the freshly-written models.yml / MINIMAX_API_KEY).
+	// Without this, the cache would serve stale "authenticated:
+	// false" data for up to 5 s after the write.
+	if h.Cache != nil {
+		h.Cache.Invalidate()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"provider": string(p),
 		"stored":   true,
@@ -139,6 +161,9 @@ func (h *ProvidersHandler) deleteKey(w http.ResponseWriter, _ *http.Request, p k
 	}
 	if h.OMP != nil {
 		h.OMP.CloseAll()
+	}
+	if h.Cache != nil {
+		h.Cache.Invalidate()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"provider": string(p),

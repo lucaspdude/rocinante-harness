@@ -188,12 +188,12 @@ func main() {
 			APIVersion:   apiVersion,
 			Idempotency:  idem,
 			AuthState:    authState,
-			AuthMW:       authMW,
-			ShareDir:     effectiveShareDir,
-			ProviderKeys: keystoreStore,
-			OMP:          manager,
-			Models:       modelsWriter,
-			LoginHandlers: &api.LoginHandlers{
+		ShareDir:     effectiveShareDir,
+		ProviderKeys: keystoreStore,
+		OMP:          manager,
+		Models:       modelsWriter,
+		LoginProvidersCache: loginProvidersCache,
+		LoginHandlers: &api.LoginHandlers{
 				Providers:  loginProvidersCache,
 				Jobs:       api.NewLoginJobs(),
 				CmdFactory: func(ctx context.Context, name string, args []string) api.CmdIface {
