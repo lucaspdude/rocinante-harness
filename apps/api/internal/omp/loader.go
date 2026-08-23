@@ -173,6 +173,27 @@ func (d *DynamicLoader) Probe(ctx context.Context) error {
 	if err != nil {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		_, _ = cmd.Process.Wait()
+		// Phase 7.5 item B: omp 18.x refuses to emit a handshake
+		// until the user has at least one provider key
+		// configured (it prints "No models available" and
+		// closes stdin, which arrives here as EOF). The cheap
+		// `omp --version` probe still works in that state and
+		// is enough to populate the version field; the meta
+		// handler keeps reporting 503 omp_version_unknown
+		// for the *providers* payload, but the status pill
+		// and version string become accurate. Recover via the
+		// fallback so the loader stops returning a frozen
+		// empty version after the first install.
+		if v, ferr := fallbackOmpVersion(probeCtx, d.bin); ferr == nil {
+			d.mu.Lock()
+			d.proto = 0
+			d.version = v
+			d.errMsg = ""
+			d.lastProbe = time.Now()
+			d.consecutiveFailures = 0
+			d.mu.Unlock()
+			return nil
+		}
 		return d.recordFailure("handshake: " + err.Error())
 	}
 	// Hand-off: detach the live session. From this point Probe

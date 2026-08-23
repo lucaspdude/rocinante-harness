@@ -141,6 +141,23 @@ func Spawn(ctx context.Context, opts Options) (*Session, error) {
 	if err != nil {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		_, _ = cmd.Process.Wait()
+		// Phase 7.5 item B: omp 18.x closes stdin without a
+		// handshake when no provider keys are configured.
+		// Fall back to `omp --version` (the cheap probe) and
+		// return a Session carrying just the version, so the
+		// boot-time probe (used by main.resolveOmp) does not
+		// freeze an empty version.
+		if v, ferr := fallbackOmpVersion(ctx, opts.OpBin); ferr == nil {
+			return &Session{
+				protocolVersion: 0,
+				ompVersion:      v,
+				ompBin:          opts.OpBin,
+				cmd:             cmd, // already reaped above
+				stdin:           stdin,
+				stdout:          stdout,
+				stderr:          stderr,
+			}, nil
+		}
 		return nil, fmt.Errorf("handshake: %w", err)
 	}
 
