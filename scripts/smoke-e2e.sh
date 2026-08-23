@@ -40,7 +40,8 @@ for phase_script in \
   "$REPO_ROOT/scripts/smoke-phase-20-picker-recovery.sh" \
   "$REPO_ROOT/scripts/smoke-phase-21-file-editor.sh" \
   "$REPO_ROOT/scripts/smoke-phase-22-polish.sh" \
-  "$REPO_ROOT/scripts/smoke-phase-23-integration.sh"; do
+  "$REPO_ROOT/scripts/smoke-phase-23-integration.sh" \
+  "$REPO_ROOT/scripts/smoke-phase-24.sh"; do
 done
 
 echo "smoke-e2e OK"
