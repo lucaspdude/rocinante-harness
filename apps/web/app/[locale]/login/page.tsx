@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useT, useLocalizedPath } from "../../../lib/i18n";
+import { useSearchParams } from "next/navigation";
+import { useI18n, useT, useLocalizedPath } from "../../../lib/i18n";
 import { api, ApiClientError } from "../../../lib/api/client";
 import { tokenStore } from "../../../lib/auth/token-store";
 import { useToast } from "../../../lib/toast";
@@ -12,10 +13,30 @@ interface LoginResponse {
   device_id: string;
 }
 
+// Phase 7 — item 01: validate a `?next=` query value as a safe
+// same-origin, locale-prefixed path. Rejects cross-origin
+// redirects (e.g. `?next=https://evil.example/...`) and
+// wrong-locale redirects (e.g. `/en-US/...` when locale is
+// `pt-BR`). On any error we fall through to the default landing
+// (`/agent/new`).
+function safeNextPath(next: string | null, locale: string): string | null {
+  if (!next) return null;
+  try {
+    const u = new URL(next, window.location.origin);
+    if (u.origin !== window.location.origin) return null;
+    if (!u.pathname.startsWith(`/${locale}/`)) return null;
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return null;
+  }
+}
+
 export default function LoginPage() {
   const t = useT();
+  const i18n = useI18n();
   const lp = useLocalizedPath();
   const toast = useToast();
+  const searchParams = useSearchParams();
   const [passphrase, setPassphrase] = useState("");
   const [deviceName, setDeviceName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,8 +49,11 @@ export default function LoginPage() {
         "/api/v1/login",
         {
           json: { passphrase, device_name: deviceName },
+          // Phase 7 — item 03 (cross-item contract): login must
+          // not emit `rh:auth:expired` on 401, otherwise the
+          // AuthExpiredListener reloads /login in a loop.
           unauthenticated: true,
-        }
+        },
       );
       if (res) {
         await tokenStore.save({
@@ -39,8 +63,12 @@ export default function LoginPage() {
         });
         // Send the user straight into a new chat session. The
         // home page is just a landing; logging in implies they
-        // want to use the product.
-        window.location.href = lp("/agent/new");
+        // want to use the product. Phase 7 — item 01: when the
+        // URL carries `?next=` (set by the home page redirect
+        // for returning users), honour it instead so the user
+        // lands on the originally-requested route.
+        const next = safeNextPath(searchParams.get("next"), i18n.locale);
+        window.location.href = next ?? lp("/agent/new");
       }
     } catch (err: unknown) {
       const code =
