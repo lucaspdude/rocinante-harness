@@ -108,12 +108,13 @@ func readHandshake(ctx context.Context, r *bufio.Reader) (Handshake, error) {
 	return hs, err
 }
 
-// fallbackOmpVersion shells out to `omp --version` when the v1
-// handshake did not declare omp_version. Bounded to 3s: the omp
-// binary is ~178MB and takes ~750ms to start on modest hardware,
-// so a tighter budget silently yields an empty version.
+// fallbackOmpVersion shells out to `omp --version` when the
+// handshake did not declare omp_version. Bounded to 10s: the
+// omp binary is ~178MB and takes up to 6s to start on cold
+// install; a 3s budget silently yields an empty version (the
+// pre-phase-7 bug this replaces).
 func fallbackOmpVersion(ctx context.Context, ompBin string) (string, error) {
-	timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(timeoutCtx, ompBin, "--version")

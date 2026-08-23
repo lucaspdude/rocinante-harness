@@ -138,10 +138,22 @@ export function useStatus(): StatusState {
   const metaFailuresRef = useRef(0);
   const timersRef = useRef<TimerMap>({});
 
-  const recheck = useCallback(() => {
+  const recheck = useCallback(async () => {
     setRecheckToken((n) => n + 1);
+    // Phase 7 — item 02: ask the api to re-probe omp. The
+    // endpoint is a no-op if a probe is already in flight
+    // (the api serves the current snapshot in that case).
+    // We swallow non-503 errors and let the regular meta
+    // fetch below update the pill — a 503 here is mapped
+    // to "omp_not_found" by the meta fetch error branch.
+    try {
+      await api.post("/api/v1/meta/refresh", {
+        unauthenticated: true,
+      });
+    } catch (e: unknown) {
+      setLastError(errorMessage(e));
+    }
   }, []);
-
   function recomputeKind() {
     setKind(
       classify(
@@ -211,10 +223,16 @@ export function useStatus(): StatusState {
       } catch (e: unknown) {
         if (cancelledRef.current) return null;
         metaFailuresRef.current += 1;
-        if (e instanceof ApiClientError && e.status === 503 && e.body?.code === "omp_not_found") {
+        if (e instanceof ApiClientError && e.status === 503 &&
+            (e.body?.code === "omp_not_found" ||
+              e.body?.code === "omp_version_unknown")) {
+          // Phase 7 — item 02: omp_version_unknown is the new
+          // 503 the api emits when the bin path is set but the
+          // probe hasn't completed yet. Map it to the same
+          // "omp_not_found" outcome so the pill flips to
+          // partial and the modal surfaces a clear error.
           metaOutcomeRef.current = "omp_not_found";
         } else {
-          metaOutcomeRef.current = "failed";
         }
         setLastError(errorMessage(e));
         recomputeKind();

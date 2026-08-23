@@ -129,7 +129,23 @@ if ! command -v omp >/dev/null 2>&1 && [ ! -x "$SHARE_DIR/bin/omp" ]; then
   fi
 fi
 
-# --- api init --------------------------------------------------------
+# Phase 7 — item 02: try to symlink omp into /usr/local/bin so
+# operators can run `omp --version` interactively without
+# adjusting $PATH. The api itself uses the absolute $OMP_BIN
+# env var (set below), so this symlink is a UX nicety, not
+# a functional requirement. On multi-user / read-only hosts
+# where /usr/local/bin is not writable, we emit a note with
+# the manual command.
+if [ -x "$SHARE_DIR/bin/omp" ]; then
+  if [ -w /usr/local/bin ]; then
+    ln -sf "$SHARE_DIR/bin/omp" /usr/local/bin/omp
+    echo ">> linked omp to /usr/local/bin/omp"
+  else
+    echo "note: omp installed to $SHARE_DIR/bin/omp; not on PATH (no write access to /usr/local/bin)"
+    echo "      add to PATH manually:  export PATH=\$PATH:$SHARE_DIR/bin"
+  fi
+fi
+
 if [ -f "$SHARE_DIR/.ed25519" ]; then
   echo ">> .ed25519 already exists at $SHARE_DIR/.ed25519; skipping init"
 else

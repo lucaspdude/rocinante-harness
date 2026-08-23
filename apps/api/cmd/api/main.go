@@ -36,16 +36,13 @@ import (
 // not inject a value; release.yml always passes the current tag.
 var apiVersion = "1.0.0"
 
-type staticMetaLoader struct {
-	ompBin          string
-	protocolVersion int
-	ompVersion      string
-}
-
-func (s staticMetaLoader) OmpBin() string { return s.ompBin }
-func (s staticMetaLoader) OmpVersion() (int, string) {
-	return s.protocolVersion, s.ompVersion
-}
+// Phase 7 — item 02: DynamicLoader replaces the boot-time
+// staticMetaLoader. The new loader spawns a background probe
+// loop (every 30s) and exposes an HTTP-driven Recheck
+// trigger so a transient failure on cold start no longer
+// poisons the meta endpoint for the lifetime of the api.
+// ResolveOmpBin still returns the bin path; the probe
+// happens in Start(ctx) below.
 
 func main() {
 	shareDir := flag.String("share-dir", "", "base directory for key/db/logs (overrides ROCINANTE_SHARE_DIR)")
@@ -87,13 +84,14 @@ func main() {
 		passphrase = os.Getenv(envName)
 	}
 
-	loader, resolvedBin := resolveOmp(envconfig.OmpBin())
+	resolvedBin, err := omp.ResolveOmpBin(envconfig.OmpBin())
+	if err != nil {
+		log.Printf("warning: ResolveOmpBin: %v; continuing with empty bin", err)
+	}
+	loader := omp.NewDynamicLoader(resolvedBin)
 	keystoreStore := keystore.New(effectiveShareDir)
 	manager := omp.NewManagerWithEnv(resolvedBin, keystoreStore)
 	// Phase-6 PR-1: write ~/.omp/agent/models.yml from the keystore on
-	// every key add/remove and kill in-flight OMP sessions so the
-	// next request picks up the new provider. Default target dir is
-	// $OMP_AGENT_DIR or $HOME/.omp/agent — the same path the OMP
 	// probe uses.
 	modelsWriter := omp.NewModelsConfigWriter(os.Getenv("OMP_AGENT_DIR"))
 	_ = modelsWriter.SyncIfConfigured(keystoreStore) // best-effort on boot
@@ -243,12 +241,17 @@ func main() {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// Phase 7 — item 02: start the DynamicLoader's background
+	// probe loop. Close() is called in the signal handler so
+	// any in-flight probe subprocess is SIGTERMed before the
+	// server shuts down.
+	loader.Start(ctx)
 	go func() {
 		<-ctx.Done()
 		manager.CloseAll()
+		loader.Close()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
@@ -267,26 +270,6 @@ func main() {
 			log.Fatalf("server error: %v", err)
 		}
 	}
-}
-
-func resolveOmp(flag string) (staticMetaLoader, string) {
-	bin, err := omp.ResolveOmpBin(flag)
-	if err != nil {
-		return staticMetaLoader{}, ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-	defer cancel()
-	sess, err := omp.Spawn(ctx, omp.Options{OpBin: bin})
-	if err != nil {
-		return staticMetaLoader{ompBin: bin}, bin
-	}
-	proto, ver := sess.Version()
-	_ = sess.Close()
-	return staticMetaLoader{
-		ompBin:          bin,
-		protocolVersion: proto,
-		ompVersion:      ver,
-	}, bin
 }
 
 func envOr(key, fallback string) string {
