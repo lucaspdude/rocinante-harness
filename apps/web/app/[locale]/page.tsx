@@ -59,6 +59,29 @@ export default function HomePage() {
     window.location.href = `${lp("/login")}?next=${encodeURIComponent(next)}`;
   }, [needsSetup, authLoading, authStatus, lp]);
 
+  // Phase 7.5 item A: first-visit visitors (no cookie, no token)
+  // see the "Sign in" CTA render first, then auto-redirect after
+  // a short delay so the page does not feel like a marketing
+  // stop. Returning users (cookie present) are handled by the
+  // useEffect above with no visible CTA. The 600 ms delay is
+  // short enough to feel snappy on a LAN install but long
+  // enough to paint the CTA once (so users coming from a
+  // search engine result see the value-prop before the URL
+  // changes).
+  useEffect(() => {
+    if (needsSetup !== false) return;
+    if (typeof window === "undefined") return;
+    if (authLoading) return;
+    if (!authStatus) return;
+    if (tokenStore.peek()) return; // authed — already handled
+    if (authStatus.device_known) return; // returning — useEffect above
+    const t = window.setTimeout(() => {
+      const next = window.location.pathname + window.location.search;
+      window.location.href = `${lp("/login")}?next=${encodeURIComponent(next)}`;
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [needsSetup, authLoading, authStatus, lp]);
+
   // Phase 7 — item 01 AC6: token present but api re-initialised
   // (tokenStore.peek() && needsSetup === true). The token is
   // stale; the onboarding init flow clears it. Redirect to
