@@ -1,11 +1,9 @@
 "use client";
 
 // Phase 5 PR-05 — /settings opens the SettingsModal.
-//
-// Phase-4 PR-07 created lib/settings/SettingsModal.tsx (centered modal,
-// left rail, 4 sections: General / Providers / Account / Developer)
-// but the legacy 5-tab page from phase-1/phase-3 was still mounted
-// here. This commit wires `/settings` to the modal instead.
+// Phase 7 — item 03: gate the route on auth. Unauthed visitors
+// are redirected to /<locale>/login?next=<original> via the
+// useEffect below; authed visitors see the modal as before.
 //
 // `?tab=` is preserved as a legacy alias for `?section=`. The 5-tab
 // `tab` ids map to the 4-section modal as follows:
@@ -19,6 +17,9 @@
 
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useLocalizedPath } from "../../../lib/i18n";
+import { useAuthStatus } from "../../../lib/auth/auth-status";
+import { tokenStore } from "../../../lib/auth/token-store";
 import { TopNav } from "../../../lib/components/TopNav";
 import { SettingsModal } from "../../../lib/settings/SettingsModal";
 
@@ -33,6 +34,9 @@ const TAB_TO_SECTION: Record<string, string> = {
 export default function SettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const lp = useLocalizedPath();
+  const hasToken = tokenStore.peek();
+  const { loading, status } = useAuthStatus();
 
   // On mount, rewrite the URL from `?tab=` / `?sub=` to the canonical
   // `?section=` form used by SettingsModal. The SettingsModal also
@@ -49,6 +53,21 @@ export default function SettingsPage() {
     if (tab === "developer" && sub) params.set("sub", sub);
     router.replace(`/settings?${params.toString()}`);
   }, [router, searchParams]);
+
+  // Phase 7 — item 03: redirect unauthed visitors to /login?next=…
+  // Triggered from useEffect so the React render body stays pure.
+  useEffect(() => {
+    if (loading) return;
+    if (hasToken) return;
+    const next = window.location.pathname + window.location.search;
+    window.location.href = `${lp("/login")}?next=${encodeURIComponent(next)}`;
+  }, [loading, hasToken, lp]);
+
+  // Loading gate: render nothing while the auth status resolves,
+  // to avoid a flash of the auth_missing red box (per AC5).
+  if (loading || (!hasToken && status?.auth_required)) {
+    return null;
+  }
 
   return (
     <>
