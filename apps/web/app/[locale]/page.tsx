@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useT, useLocalizedPath } from "../../lib/i18n";
 import { tokenStore } from "../../lib/auth/token-store";
+import { useAuthStatus } from "../../lib/auth/auth-status";
 import { TopNav } from "../../lib/components/TopNav";
 import { api } from "../../lib/api/client";
 
@@ -12,6 +13,7 @@ export default function HomePage() {
   const router = useRouter();
   const lp = useLocalizedPath();
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+  const { loading: authLoading, status: authStatus } = useAuthStatus();
 
   // Fetch api onboarding state.
   useEffect(() => {
@@ -41,6 +43,32 @@ export default function HomePage() {
       router.replace(lp("/agent/new"));
     }
   }, [needsSetup, router, lp]);
+
+  // Phase 7 — item 01: redirect returning users (cookie present
+  // + no token) to /login. Brand-new visitors (no cookie) still
+  // see the "Sign in" CTA. Triggered from useEffect so the React
+  // render body stays pure.
+  useEffect(() => {
+    if (needsSetup !== false) return;
+    if (typeof window === "undefined") return;
+    if (authLoading) return;
+    if (!authStatus) return;
+    if (tokenStore.peek()) return; // already handled by the authed branch
+    if (!authStatus.device_known) return; // first visit — show CTA
+    const next = window.location.pathname + window.location.search;
+    window.location.href = `${lp("/login")}?next=${encodeURIComponent(next)}`;
+  }, [needsSetup, authLoading, authStatus, lp]);
+
+  // Phase 7 — item 01 AC6: token present but api re-initialised
+  // (tokenStore.peek() && needsSetup === true). The token is
+  // stale; the onboarding init flow clears it. Redirect to
+  // /onboarding so the user can re-init the api.
+  useEffect(() => {
+    if (needsSetup !== true) return;
+    if (typeof window === "undefined") return;
+    if (!tokenStore.peek()) return;
+    window.location.href = lp("/onboarding");
+  }, [needsSetup, lp]);
 
   // While we don't yet know the api's state, render a small
   // loading hint instead of the action buttons. Avoids a
@@ -81,8 +109,9 @@ export default function HomePage() {
     );
   }
 
-  // Un-authed: single Sign in CTA. The old two-button gate was
-  // visible-but-useless for users without a token.
+  // Un-authed first-visit: single Sign in CTA. The cookie-gated
+  // useEffect above already redirected returning users to
+  // /login, so reaching this branch means device_known=false.
   return (
     <>
       <TopNav />

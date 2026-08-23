@@ -107,6 +107,12 @@ if deps.ModelsCatalog != nil {
 // §5.3 (Risks).
 r.Get("/api/v1/me", MeHandler)
 
+// Phase 7 — item 01: public /api/v1/auth/status so the home page
+// can read the auth state before the user has a token. Mounted
+// alongside /me, outside the auth-protected group. Returns
+// { initialized, auth_required, device_known }.
+r.Get("/api/v1/auth/status", AuthStatusHandler(deps.ShareDir))
+
 if deps.AuthState != nil {
 	idem := middleware.IdempotencyMiddleware(deps.Idempotency)
 	r.Post("/api/v1/login", WrapHandler(idem, LoginHandler(deps.AuthState)))
